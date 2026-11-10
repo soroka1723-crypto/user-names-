@@ -20,17 +20,10 @@ const MAX_CHECK_BATCHES: usize = 10;
 const CHECK_TIMEOUT_SECS: u64 = 4;
 const PREMIUM_CONTACT: &str = "@xldzo";
 
-const WORD_ONSETS: &[&str] = &[
-    "b","d","f","g","h","k","l","m","n","p","r","s","t","v","z","x","j",
-    "br","dr","fr","gr","kr","pr","tr","vr","zl","vl","kl","pl","sl","st","sk","sv","th","sh"
+// Curated, recognizable English words only. No syllable-based pseudo-words.
+const COMMON_WORDS: &[&str] = &[
+    "about","above","abuse","actor","acute","admit","adopt","adult","after","again","agent","agree","ahead","alarm","album","alert","alike","alive","allow","alone","along","alter","among","angel","anger","angle","angry","ankle","apart","apple","apply","arena","argue","arise","armed","armor","aroma","arrow","aside","asset","audio","audit","avoid","awake","award","aware","awful","beach","begin","being","below","bench","berry","birth","black","blame","blind","block","blood","board","brain","brand","bread","break","brick","bride","brief","bring","broad","brown","build","built","buyer","cable","camel","candy","carry","catch","cause","chain","chair","charm","chart","chase","cheap","check","chest","chief","child","china","civil","claim","class","clean","clear","clock","close","cloud","coach","coast","color","could","count","court","cover","craft","crash","cream","crime","cross","crowd","crown","curve","daily","dance","death","delay","depth","dirty","doubt","dozen","draft","drama","dream","dress","drink","drive","earth","eight","elite","empty","enemy","enjoy","enter","entry","equal","error","event","every","exact","exist","extra","faith","false","fault","field","fifth","fifty","fight","final","first","flame","flash","floor","focus","force","forth","forty","found","frame","frank","fresh","front","fruit","funny","giant","given","glass","globe","going","grace","grade","grand","grant","grass","great","green","greet","group","guard","guess","guest","guide","habit","happy","heart","heavy","hello","hence","honey","horse","hotel","house","human","ideal","image","imply","index","inner","input","issue","joint","judge","known","label","labor","large","laser","later","laugh","layer","learn","least","leave","legal","level","light","limit","local","logic","loose","lower","lucky","lunch","magic","major","maker","march","match","maybe","mayor","meant","media","metal","might","minor","minus","model","money","month","moral","motor","mount","mouse","mouth","movie","music","needs","never","night","noise","north","noted","novel","nurse","occur","ocean","offer","often","order","other","ought","outer","owner","paint","panel","paper","party","peace","phase","phone","photo","piece","pilot","pitch","place","plain","plane","plant","plate","point","pound","power","press","price","pride","prime","print","prior","prize","proof","proud","prove","queen","quick","quiet","quite","radio","raise","range","rapid","ratio","reach","ready","refer","right","river","roast","rough","round","route","royal","rural","scale","scene","scope","score","sense","serve","seven","shall","shape","share","sharp","sheet","shelf","shell","shift","shine","shirt","shock","shoot","short","shown","sight","since","skill","sleep","slice","small","smart","smile","smoke","solid","solve","sorry","sound","south","space","spare","speak","speed","spend","spent","split","sport","staff","stage","stake","stand","start","state","steam","steel","stick","still","stock","stone","stood","store","storm","story","strip","study","style","sugar","suite","super","sweet","table","taken","taste","teach","teeth","thank","their","theme","there","these","thick","thing","think","third","those","three","threw","tight","tired","title","today","topic","total","touch","tough","tower","track","trade","train","treat","trend","trial","tried","truck","truly","trust","truth","twice","under","union","unity","until","upper","urban","usage","usual","valid","value","video","visit","vital","voice","waste","watch","water","wheel","where","which","while","white","whole","whose","woman","women","world","worry","worse","worst","worth","would","write","wrong","wrote","youth"
 ];
-const WORD_VOWELS: &[&str] = &["a","e","i","o","u","y","ae","io"];
-const WORD_MIDDLE: &[&str] = &["l","n","r","s","v","x","z","k","m","th","nd","rn"];
-const WORD_ENDINGS: &[&str] = &[
-    "ix","ex","ox","yx","on","ion","ora","ara","ina","ius","elo","aro","eon",
-    "ith","ar","el","is","um","ia","ya","os","or","en","an","yr","ax","ul","ev"
-];
-const WORD_FINAL_CONSONANTS: &[&str] = &["x","n","r","s","l","m","th","k","z"];
 const WORD_BLOCKLIST: &[&str] = &[
     "fuck","shit","cunt","dick","cock","porn","nazi","rape","slut","whore",
     "nigg","fagg","bitch","piss","tits","penis","vagin"
@@ -40,68 +33,12 @@ fn word_ok(word: &str) -> bool {
     word.len() == 5
         && word.is_ascii()
         && word.bytes().all(|b| b.is_ascii_lowercase())
-        && word.bytes().any(|b| b"aeiouy".contains(&b))
         && !WORD_BLOCKLIST.iter().any(|bad| word.contains(bad))
-        && !(0..word.len().saturating_sub(2)).any(|i| {
-            let b = word.as_bytes();
-            b[i] == b[i + 1] && b[i] == b[i + 2]
-        })
-}
-
-fn pick_part<'a, R: rand::Rng + ?Sized>(items: &'a [&'a str], rng: &mut R) -> &'a str {
-    items[rng.gen_range(0..items.len())]
 }
 
 fn generate_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
-    for _ in 0..500 {
-        let pattern: f64 = rng.gen();
-        let candidate = if pattern < 0.55 {
-            format!(
-                "{}{}{}{}",
-                pick_part(WORD_ONSETS, rng),
-                pick_part(WORD_VOWELS, rng),
-                pick_part(WORD_MIDDLE, rng),
-                pick_part(WORD_ENDINGS, rng)
-            )
-        } else if pattern < 0.85 {
-            format!(
-                "{}{}{}{}{}",
-                pick_part(WORD_ONSETS, rng),
-                pick_part(WORD_VOWELS, rng),
-                pick_part(WORD_MIDDLE, rng),
-                pick_part(WORD_VOWELS, rng),
-                pick_part(WORD_FINAL_CONSONANTS, rng)
-            )
-        } else {
-            format!(
-                "{}{}{}{}",
-                pick_part(WORD_ONSETS, rng),
-                pick_part(WORD_VOWELS, rng),
-                pick_part(WORD_ONSETS, rng),
-                pick_part(WORD_ENDINGS, rng)
-            )
-        };
-        if word_ok(&candidate) {
-            return candidate;
-        }
-    }
-    "zyrve".to_string()
+    COMMON_WORDS.choose(rng).copied().unwrap_or("apple").to_string()
 }
-
-fn is_simple(name: &str) -> bool {
-    let bytes = name.as_bytes();
-    if bytes.len() != 5 { return true; }
-    let unique = bytes.iter().copied().collect::<std::collections::HashSet<_>>();
-    if unique.len() < 4 { return true; }
-    if unique.iter().any(|c| bytes.iter().filter(|b| *b == c).count() > 2) { return true; }
-    for i in 0..3 {
-        if bytes[i] == bytes[i + 1] { return true; }
-        if bytes[i + 1] == bytes[i] + 1 && bytes[i + 2] == bytes[i + 1] + 1 { return true; }
-        if bytes[i] == bytes[i + 1] + 1 && bytes[i + 1] == bytes[i + 2] + 1 { return true; }
-    }
-    false
-}
-
 
 #[derive(Clone, Default)]
 struct UserState { step: String, target: i64 }
@@ -289,7 +226,7 @@ impl App {
         let mut candidates = std::collections::HashSet::new();
         for _ in 0..600 {
             let name = generate_word(&mut rng);
-            if word_ok(&name) && !is_simple(&name) && !known.contains(&name) {
+            if word_ok(&name) && !known.contains(&name) {
                 candidates.insert(name);
             }
         }
