@@ -28,6 +28,8 @@ const USERS_PAGE_SIZE: i64 = 20;
 const GIFT_REQUESTS_MAX: i64 = 100;
 const CHECK_FAVORITES_LIMIT: usize = 30;
 const LETTERS: &str = "abcdefghijklmnopqrstuvwxyz";
+const DIGITS: &str = "0123456789";
+const ALL_CHARS: &str = "abcdefghijklmnopqrstuvwxyz0123456789";
 const WORD_MIN_LENGTH: usize = 5;
 const WORD_MAX_LENGTH: usize = 5;
 
@@ -216,7 +218,7 @@ impl App {
     }
 }
 
-fn valid_username(name:&str)->bool{name.len()==5&&name.bytes().all(|c|c.is_ascii_lowercase())}
+fn valid_username(name:&str)->bool{name.len()==5&&name.as_bytes()[0].is_ascii_lowercase()&&name.bytes().all(|c|c.is_ascii_lowercase()||c.is_ascii_digit())}
 fn record_flood(events:&mut HashMap<i64,Vec<f64>>,id:i64,t:f64)->usize{let list=events.entry(id).or_default();list.push(t);list.retain(|x|*x>t-FLOOD_WINDOW);list.len()}
 fn split_message(text:&str,limit:usize)->Vec<String>{
     let mut out=Vec::new(); let mut cur=String::new();
@@ -245,7 +247,7 @@ fn generate_word()->String {
     }
     "zyrve".to_string()
 }
-fn generate_one(mode:&str)->String{if mode=="words"{generate_word()}else{let mut rng=rand::thread_rng();let mut out=String::with_capacity(5);out.push(*LETTERS.as_bytes().choose(&mut rng).unwrap() as char);for _ in 0..4{out.push(*LETTERS.as_bytes().choose(&mut rng).unwrap() as char);}out}}
+fn generate_one(mode:&str)->String{if mode=="words"{return generate_word();}let chars=if mode=="letters"{LETTERS}else{ALL_CHARS};let mut rng=rand::thread_rng();let mut out=String::with_capacity(5);out.push(*LETTERS.as_bytes().choose(&mut rng).unwrap() as char);for _ in 0..4{out.push(*chars.as_bytes().choose(&mut rng).unwrap() as char);}out}
 fn is_simple(name:&str)->bool {
     let unique=name.chars().collect::<HashSet<_>>().len(); if unique<4{return true;}
     for c in name.chars().collect::<HashSet<_>>() {if name.matches(c).count()>2{return true;}}
@@ -280,7 +282,7 @@ impl App {
         let deadline=Instant::now()+Duration::from_secs(CHECK_TIME_BUDGET); let mut result=Vec::new(); let mut seen=HashSet::new(); let mut checked=0;let mut taken=0;let mut unknown=0;let mut bad_batches=0;let mut network_down=false;
         while result.len()<target && Instant::now()<deadline {
             let mut batch=Vec::new();let mut guard=0;
-            while batch.len()<CHECK_THREADS*2&&guard<500 {guard+=1;let n=generate_one(mode);if n.len()!=5||!n.bytes().all(|c|c.is_ascii_lowercase())||word_blocked(&n)||(smart&&mode!="words"&&is_simple(&n))||!seen.insert(n.clone()){continue;}let exists=self.db.lock().ok().and_then(|db|db.query_row("SELECT 1 FROM generated WHERE name=?1",[&n],|r|r.get::<_,i64>(0)).optional().ok().flatten()).is_some();if !exists{batch.push(n);}}
+            while batch.len()<CHECK_THREADS*2&&guard<500 {guard+=1;let n=generate_one(mode);if !valid_username(&n)||(mode!="letters_digits"&&n.bytes().any(|c|c.is_ascii_digit()))||word_blocked(&n)||(smart&&mode!="words"&&is_simple(&n))||!seen.insert(n.clone()){continue;}let exists=self.db.lock().ok().and_then(|db|db.query_row("SELECT 1 FROM generated WHERE name=?1",[&n],|r|r.get::<_,i64>(0)).optional().ok().flatten()).is_some();if !exists{batch.push(n);}}
             if batch.is_empty(){break;}
             let outcomes:Vec<(&String,&'static str)>=self.check_pool.install(||batch.par_iter().map(|n|(n,self.check_name(n))).collect());let mut unknown_batch=0;
             for (n,status) in outcomes {checked+=1;match status{"free"=>{if result.len()<target{result.push(n.clone());}},"taken"=>taken+=1,_=>{unknown+=1;unknown_batch+=1;}}}
@@ -314,7 +316,7 @@ impl App {
 
 const MAIN_MENU:&[&[&str]]=&[&["🎲 Генерировать"],&["🔤 Режим"],&["🧠 Умная генерация"],&["⭐ Избранное","🔎 Поиск избранного"],&["📜 История"],&["✅ Проверить избранное"],&["💾 Сохранить список"],&["📊 Мой лимит"],&["👑 Купить Premium"]];
 const ADMIN_MENU:&[&[&str]]=&[&["📊 Статистика","👥 Пользователи"],&["🪪 Карточка пользователя","📋 Журнал нарушений"],&["📈 Активность 7 дней","📈 Активность 30 дней"],&["🚫 Заблокировать","🔓 Разблокировать"],&["⏳ Временная блокировка","🚷 Игнор-лист"],&["➕ В игнор","➖ Из игнора"],&["✉️ Написать пользователю","📢 Массовая рассылка"],&["👑 Выдать Premium","❌ Снять Premium"],&["💾 Резервная копия","🛠 Права 2-го админа"],&["➕ Назначить второго администратора"],&["➖ Снять второго администратора"],&["🎁 Подарить запросы"],&["🤖 Разбан автобанов"],&["⬅️ Назад"]];
-const MODE_MENU:&[&[&str]]=&[&["💎 Редкие слова"],&["🔤 Только буквы"],&["⬅️ Назад"]];
+const MODE_MENU:&[&[&str]]=&[&["💎 Редкие слова"],&["🔤 Только буквы"],&["🔢 Буквы + цифры"],&["⬅️ Назад"]];
 const SUB_MENU:&[&[&str]]=&[&["📢 Подписаться"],&["🔄 Проверить подписку"]];
 fn keyboard(rows:&[&[&str]])->Vec<Vec<String>>{rows.iter().map(|r|r.iter().map(|s|s.to_string()).collect()).collect()}
 impl App {
@@ -394,9 +396,10 @@ impl App {
             "🎲 Генерировать"=>{let out=self.generate_message(id);self.send(cid,&out,Some(kb));},
             "👑 Купить Premium"=>{self.send(cid,&self.premium_text(id),Some(kb));},
             "📊 Мой лимит"=>{self.send(cid,&self.daily_limit_text(id),Some(kb));},
-            "🔤 Режим"=>{self.send(cid,"В этом режиме генерируются только английские буквы (максимум 5).",Some(keyboard(MODE_MENU)));},
+            "🔤 Режим"=>{self.send(cid,"Выбери режим генерации.",Some(keyboard(MODE_MENU)));},
             "💎 Редкие слова"=>{s.mode="words".into();self.send(cid,"✅ Режим: редкие английские слова, максимум 5 букв.",Some(kb));},
-            "🔤 Только буквы"|"🔢 Буквы + цифры"=>{s.mode="letters".into();self.send(cid,"✅ Режим: случайные английские буквы, максимум 5. Цифры не используются.",Some(kb));},
+            "🔤 Только буквы"=>{s.mode="letters".into();self.send(cid,"✅ Режим: только английские буквы, максимум 5.",Some(kb));},
+            "🔢 Буквы + цифры"=>{s.mode="letters_digits".into();self.send(cid,"✅ Режим: первая буква английская, далее буквы и цифры.",Some(kb));},
             "🧠 Умная генерация"=>{s.smart=!s.smart;self.send(cid,&format!("🧠 Умная генерация {}.",if s.smart{"включена"}else{"выключена"}),Some(kb));},
                         "⭐ Избранное"=>{self.send(cid,&self.show_names(self.names_from("favorites",id,100),"⭐ ИЗБРАННОЕ"),Some(kb));},
             "📜 История"=>{self.send(cid,&self.show_names(self.names_from("history",id,50),"📜 ПОСЛЕДНИЕ ГЕНЕРАЦИИ"),Some(kb));},
@@ -528,16 +531,20 @@ fn main(){
 mod tests {
     use super::*;
     #[test]
-    fn generated_names_are_exactly_five_ascii_letters() {
-        for _ in 0..500 { for mode in ["words","letters"] {let n=generate_one(mode); assert_eq!(n.len(),5); assert!(n.bytes().all(|c|c.is_ascii_lowercase()));} }
+    fn generation_modes_match_python_rules() {
+        for _ in 0..500 {
+            let word=generate_one("words"); assert_eq!(word.len(),5); assert!(word.bytes().all(|c|c.is_ascii_lowercase()));
+            let letters=generate_one("letters"); assert_eq!(letters.len(),5); assert!(letters.bytes().all(|c|c.is_ascii_lowercase()));
+            let mixed=generate_one("letters_digits"); assert_eq!(mixed.len(),5); assert!(mixed.as_bytes()[0].is_ascii_lowercase()); assert!(mixed.bytes().all(|c|c.is_ascii_lowercase()||c.is_ascii_digit()));
+        }
     }
     #[test]
     fn split_message_respects_limit() {
         let chunks=split_message(&"x".repeat(9000),3800); assert!(chunks.iter().all(|x|x.chars().count()<=3800)); assert_eq!(chunks.iter().map(|x|x.len()).sum::<usize>(),9000);
     }
     #[test]
-    fn manual_favorite_validation_rejects_digits_and_long_names() {
-        assert!(valid_username("abcde")); assert!(!valid_username("abcd1")); assert!(!valid_username("abcdef")); assert!(!valid_username("abcd"));
+    fn manual_favorite_validation_matches_python_rules() {
+        assert!(valid_username("abcde")); assert!(valid_username("abcd1")); assert!(valid_username("a1b2c")); assert!(!valid_username("1abcd")); assert!(!valid_username("abc$e")); assert!(!valid_username("abcdef")); assert!(!valid_username("abcd"));
     }
     #[test]
     fn anti_flood_threshold_is_five_messages_in_three_seconds() {
