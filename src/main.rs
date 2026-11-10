@@ -28,7 +28,6 @@ const USERS_PAGE_SIZE: i64 = 20;
 const GIFT_REQUESTS_MAX: i64 = 100;
 const CHECK_FAVORITES_LIMIT: usize = 30;
 const LETTERS: &str = "abcdefghijklmnopqrstuvwxyz";
-const DIGITS: &str = "0123456789";
 const ALL_CHARS: &str = "abcdefghijklmnopqrstuvwxyz0123456789";
 const WORD_MIN_LENGTH: usize = 5;
 const WORD_MAX_LENGTH: usize = 5;
@@ -116,7 +115,7 @@ fn db_init() -> rusqlite::Result<Connection> {
         let cols=st.query_map([],|r|r.get::<_,String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
         if !cols.iter().any(|c|c==col) { db.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {def}"))?; }
     }
-    db.execute_batch("CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id,id DESC); CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id,added_at DESC); CREATE INDEX IF NOT EXISTS idx_users_blocked ON users(blocked); CREATE INDEX IF NOT EXISTS idx_daily_date ON daily_usage(usage_date); CREATE INDEX IF NOT EXISTS idx_requests_date ON daily_requests(usage_date); CREATE INDEX IF NOT EXISTS idx_spam_user_time ON spam_events(user_id,event_time); CREATE INDEX IF NOT EXISTS idx_generation_log_date ON generation_log(gen_date);")?;
+    db.execute_batch("CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id,id DESC); CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(user_id,added_at DESC); CREATE INDEX IF NOT EXISTS idx_users_blocked ON users(blocked); CREATE INDEX IF NOT EXISTS idx_daily_date ON daily_usage(usage_date); CREATE INDEX IF NOT EXISTS idx_requests_date ON daily_requests(usage_date); CREATE INDEX IF NOT EXISTS idx_spam_user_time ON spam_events(user_id,event_time); CREATE INDEX IF NOT EXISTS idx_generation_log_date ON generation_log(gen_date); CREATE INDEX IF NOT EXISTS idx_users_joined ON users(joined_at DESC,user_id DESC); CREATE INDEX IF NOT EXISTS idx_moderation_log_id ON moderation_log(id DESC); CREATE INDEX IF NOT EXISTS idx_activity_day ON activity_log(day,user_id); CREATE INDEX IF NOT EXISTS idx_generation_user_date ON generation_log(user_id,gen_date);")?;
     Ok(db)
 }
 
