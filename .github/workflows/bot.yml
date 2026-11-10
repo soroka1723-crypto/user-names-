@@ -1,5 +1,5 @@
 name: Run Rust Telegram bot
-# Manual one-hour launch trigger.
+# Manual one-hour launch trigger (requested 2026-11-10).
 on:
   push:
     branches:
@@ -46,7 +46,7 @@ jobs:
       - name: Build
         run: cargo build --release
       - name: Run bot for one session
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.event.head_commit.message == 'Run one-hour bot test after manifest fix' || github.event.head_commit.message == 'Fix Rust string comparison in Telegram retry handler' || github.event.head_commit.message == 'Start one-hour live bot test' || github.event.head_commit.message == 'Retry one-hour live bot test' || github.event.head_commit.message == 'Start one-hour compact bot test' || github.event.head_commit.message == 'Start one-hour validation after username parser fix'))
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.event.head_commit.message == 'Run one-hour bot test after manifest fix' || github.event.head_commit.message == 'Fix Rust string comparison in Telegram retry handler' || github.event.head_commit.message == 'Start one-hour live bot test' || github.event.head_commit.message == 'Retry one-hour live bot test' || github.event.head_commit.message == 'Start one-hour compact bot test' || github.event.head_commit.message == 'Start one-hour validation after username parser fix' || github.event.head_commit.message == 'Start one-hour bot session')) 
         shell: bash
         run: |
           set +e
