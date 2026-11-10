@@ -212,8 +212,9 @@ impl App {
         let known = {
             let db = self.db.lock().unwrap();
             let mut stmt = db.prepare("SELECT name FROM generated").map_err(|_|"db")?;
-            stmt.query_map([],|r|r.get::<_,String>(0)).map_err(|_|"db")?
-                .collect::<rusqlite::Result<std::collections::HashSet<_>>>().map_err(|_|"db")?
+            let rows = stmt.query_map([],|r|r.get::<_,String>(0)).map_err(|_|"db")?;
+            let values = rows.collect::<rusqlite::Result<std::collections::HashSet<_>>>().map_err(|_|"db")?;
+            values
         };
         candidates.retain(|n| n.len()==5 && n.bytes().all(|b|b.is_ascii_lowercase()) && !known.contains(n));
         let mut free = Vec::new();
