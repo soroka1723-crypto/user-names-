@@ -247,15 +247,14 @@ impl App {
         "unknown"
     }
 
-    fn check_fragment(&self, name: &str) -> bool {
+    fn check_fragment(&self, name: &str) -> Option<bool> {
         let url = format!("https://fragment.com/username/{name}");
-        let page = match self.client.get(url).timeout(Duration::from_secs(CHECK_TIMEOUT_SECS)).send() {
-            Ok(r) if r.status().is_success() => match r.text() { Ok(v) => v, Err(_) => return false },
-            _ => return false,
-        };
+        let response = self.client.get(url).timeout(Duration::from_secs(CHECK_TIMEOUT_SECS)).send().ok()?;
+        if !response.status().is_success() { return None; }
+        let page = response.text().ok()?;
         static STATUS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         let re = STATUS.get_or_init(|| regex::Regex::new(r#"class="[^"]*tm-section-header-status[^"]*tm-status-(\w+)"#).expect("valid Fragment regex"));
-        re.captures(&page).and_then(|c|c.get(1)).map(|m|matches!(m.as_str(),"avail"|"auction"|"sold")).unwrap_or(false)
+        Some(re.captures(&page).and_then(|c|c.get(1)).map(|m|matches!(m.as_str(),"avail"|"auction"|"sold")).unwrap_or(false))
     }
 
     fn check_name(&self, name: &str) -> &'static str {
@@ -263,8 +262,11 @@ impl App {
         if self.check_tme_once(name) != "free" { return "unknown_or_taken"; }
         thread::sleep(Duration::from_millis(450));
         if self.check_tme_once(name) != "free" { return "unknown_or_taken"; }
-        if self.check_fragment(name) { return "taken"; }
-        "free"
+        match self.check_fragment(name) {
+            Some(true) => "taken",
+            Some(false) => "free",
+            None => "unknown",
+        }
     }
 
     fn generate(&self, id: i64) -> Result<Vec<String>, String> {
