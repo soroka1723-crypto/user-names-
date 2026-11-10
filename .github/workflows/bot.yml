@@ -2,12 +2,12 @@ name: Run Rust Telegram bot
 on:
   push:
     branches:
-      - '**'
+      - main
   pull_request:
   schedule:
-    # Moscow time (UTC+3): 12:00 and 17:00, two consecutive ~5-hour sessions.
-    - cron: '0 9 * * *'
-    - cron: '0 14 * * *'
+    # Moscow time (UTC+3): 10:00-15:00 and 15:20-20:20.
+    - cron: '0 7 * * *'
+    - cron: '20 12 * * *'
   workflow_dispatch:
 concurrency:
   group: username-generator-bot
@@ -50,10 +50,27 @@ jobs:
         shell: bash
         run: |
           set +e
-          timeout --signal=INT --kill-after=15s 5h ./target/release/username_generator_bot
+          export TZ=Europe/Moscow
+          now=$(date +%s)
+          today=$(date +%F)
+          if [[ "$(date +%H%M)" -ge 1000 && "$(date +%H%M)" -lt 1500 ]]; then
+            end=$(date -d "$today 15:00:00" +%s)
+          elif [[ "$(date +%H%M)" -ge 1520 && "$(date +%H%M)" -lt 2020 ]]; then
+            end=$(date -d "$today 20:20:00" +%s)
+          else
+            echo "Outside scheduled Moscow-time windows; bot will not start."
+            exit 0
+          fi
+          remaining=$((end - now))
+          if [[ "$remaining" -le 0 ]]; then
+            echo "Session end time has passed; bot will not start."
+            exit 0
+          fi
+          echo "Starting bot until $(date -d "@$end" '+%H:%M:%S %Z') Moscow time."
+          timeout --signal=INT --kill-after=15s "${remaining}s" ./target/release/username_generator_bot
           status=$?
           if [[ "$status" -eq 124 || "$status" -eq 130 ]]; then
-            echo "Scheduled session finished normally."
+            echo "Scheduled Moscow-time session finished normally."
             exit 0
           fi
           exit "$status"
