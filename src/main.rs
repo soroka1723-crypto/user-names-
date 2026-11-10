@@ -148,7 +148,7 @@ impl App {
             for _ in 0..3 {
                 match self.api("sendMessage",data.clone()) {
                     Ok(_)=>{sent=true;break;},
-                    Err(e)=>{ let p=e.splitn(3,'|').collect::<Vec<_>>(); let code=p.first().unwrap_or(&""); if code=="429" { let wait=p.get(1).and_then(|x|x.parse::<u64>().ok()).unwrap_or(1).min(30); thread::sleep(Duration::from_secs(wait)+Duration::from_millis(500)); continue; } if code.parse::<i64>().is_err(){log_line("WARN",&format!("Network error while sending to {chat_id}: {e}"));thread::sleep(Duration::from_millis(1500));continue;}log_line("WARN",&format!("Telegram sendMessage failed chat={chat_id}: {e}"));break; }
+                    Err(e)=>{ let p=e.splitn(3,'|').collect::<Vec<_>>(); let code=p.first().copied().unwrap_or(""); if code=="429" { let wait=p.get(1).and_then(|x|x.parse::<u64>().ok()).unwrap_or(1).min(30); thread::sleep(Duration::from_secs(wait)+Duration::from_millis(500)); continue; } if code.parse::<i64>().is_err(){log_line("WARN",&format!("Network error while sending to {chat_id}: {e}"));thread::sleep(Duration::from_millis(1500));continue;}log_line("WARN",&format!("Telegram sendMessage failed chat={chat_id}: {e}"));break; }
                 }
             }
             if !sent { ok=false; }
