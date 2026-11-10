@@ -1,0 +1,52 @@
+name: Run Rust Telegram bot
+on:
+  schedule:
+    # Moscow time (UTC+3): 12:00 and 17:00, two consecutive ~5-hour sessions.
+    - cron: '0 9 * * *'
+    - cron: '0 14 * * *'
+  workflow_dispatch:
+concurrency:
+  group: username-generator-bot
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - uses: actions/cache@v4
+        with:
+          path: |
+            username_data.db
+            username_data.db-wal
+          key: username-db-${{ github.run_id }}
+          restore-keys: |
+            username-db-
+      - name: Build
+        run: cargo build --release
+      - name: Run bot for one session
+        shell: bash
+        run: |
+          set +e
+          timeout --signal=INT --kill-after=15s 4h58m ./target/release/username_generator_bot
+          status=$?
+          if [[ "$status" -eq 124 || "$status" -eq 130 ]]; then
+            echo "Scheduled session finished normally."
+            exit 0
+          fi
+          exit "$status"
