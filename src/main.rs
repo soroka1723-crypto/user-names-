@@ -1,6 +1,5 @@
 use chrono::Local;
 use rand::seq::SliceRandom;
-use rand::Rng;
 use rayon::prelude::*;
 use reqwest::blocking::Client;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -49,17 +48,20 @@ fn word_ok(word: &str) -> bool {
         })
 }
 
+fn pick_part<'a, R: rand::Rng + ?Sized>(items: &'a [&'a str], rng: &mut R) -> &'a str {
+    items[rng.gen_range(0..items.len())]
+}
+
 fn generate_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
     for _ in 0..500 {
-        let pick = |items: &[&str], rng: &mut R| items[rng.gen_range(0..items.len())];
         let pattern: f64 = rng.gen();
         let candidate = if pattern < 0.55 {
             format!(
                 "{}{}{}{}",
-                pick(WORD_ONSETS, rng),
-                pick(WORD_VOWELS, rng),
-                pick(WORD_MIDDLE, rng),
-                pick(WORD_ENDINGS, rng)
+                pick_part(WORD_ONSETS, rng),
+                pick_part(WORD_VOWELS, rng),
+                pick_part(WORD_MIDDLE, rng),
+                pick_part(WORD_ENDINGS, rng)
             )
         } else if pattern < 0.85 {
             format!(
@@ -68,7 +70,7 @@ fn generate_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
                 pick(WORD_VOWELS, rng),
                 pick(WORD_MIDDLE, rng),
                 pick(WORD_VOWELS, rng),
-                pick(WORD_FINAL_CONSONANTS, rng)
+                pick_part(WORD_FINAL_CONSONANTS, rng)
             )
         } else {
             format!(
