@@ -14,7 +14,9 @@ use tracing::{debug, info, warn};
 const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz";
 const VOWELS: &[u8] = b"aeiou";
 const CONSONANTS: &[u8] = b"bcdfghjklmnpqrstvwxyz";
-const CACHE_TTL_SECS: i64 = 600;
+const CACHE_FREE_TTL_SECS: i64 = 600;
+const CACHE_TAKEN_TTL_SECS: i64 = 21_600;
+const SEEN_TTL_SECS: i64 = 86_400;
 const DEFAULT_CONCURRENCY: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,8 +109,8 @@ impl GeneratorStore {
     fn was_seen(&self, user_id: i64, name: &str) -> Result<bool, String> {
         let db = self.db.lock().map_err(|_| "generator database lock poisoned".to_string())?;
         db.query_row(
-            "SELECT 1 FROM generator_seen WHERE user_id=?1 AND username=?2",
-            params![user_id, name],
+            "SELECT 1 FROM generator_seen WHERE user_id=?1 AND username=?2 AND seen_at>=?3",
+            params![user_id, name, now_unix().saturating_sub(SEEN_TTL_SECS)],
             |_| Ok(()),
         ).optional().map(|v| v.is_some())
             .map_err(|e| format!("check per-user duplicate: {e}"))
@@ -117,7 +119,8 @@ impl GeneratorStore {
     fn mark_seen(&self, user_id: i64, name: &str) -> Result<(), String> {
         let db = self.db.lock().map_err(|_| "generator database lock poisoned".to_string())?;
         db.execute(
-            "INSERT OR IGNORE INTO generator_seen(user_id,username,seen_at) VALUES(?1,?2,?3)",
+            "INSERT INTO generator_seen(user_id,username,seen_at) VALUES(?1,?2,?3)
+             ON CONFLICT(user_id,username) DO UPDATE SET seen_at=excluded.seen_at",
             params![user_id, name, now_unix()],
         ).map_err(|e| format!("save per-user seen username: {e}"))?;
         Ok(())
@@ -205,8 +208,12 @@ impl Generator {
             for name in batch {
                 let now = now_unix();
                 match self.store.cached(&name)? {
-                    Some(cached) if now.saturating_sub(cached.checked_at) < CACHE_TTL_SECS
-                        && cached.status != Status::Unknown => {
+                    Some(cached) if cached.status != Status::Unknown
+                        && now.saturating_sub(cached.checked_at) < (match cached.status {
+                            Status::Free => CACHE_FREE_TTL_SECS,
+                            Status::Taken => CACHE_TAKEN_TTL_SECS,
+                            Status::Unknown => 0,
+                        }) => {
                             if cached.status == Status::Free {
                                 candidates.push(Candidate {
                                     name,
