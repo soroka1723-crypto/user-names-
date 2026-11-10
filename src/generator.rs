@@ -129,6 +129,7 @@ pub struct Generator {
     checker: Arc<dyn AvailabilityChecker>,
     gate: Arc<Semaphore>,
     words: HashSet<String>,
+    words4: HashSet<String>,
     blacklist: HashSet<String>,
 }
 
@@ -138,13 +139,15 @@ impl Generator {
         checker: Arc<dyn AvailabilityChecker>,
         concurrency: usize,
     ) -> Self {
-        let words = load_words("words5.txt", DEFAULT_WORDS);
-        let blacklist = load_words("blacklist.txt", DEFAULT_BLACKLIST);
+        let words = load_words("words5.txt", DEFAULT_WORDS, 5);
+        let words4 = load_words("words4.txt", DEFAULT_WORDS4, 4);
+        let blacklist = load_words("blacklist.txt", DEFAULT_BLACKLIST, 5);
         Self {
             store,
             checker,
             gate: Arc::new(Semaphore::new(concurrency.max(1))),
             words,
+            words4,
             blacklist,
         }
     }
@@ -245,6 +248,16 @@ impl Generator {
                 return (*w).clone();
             }
         }
+        if roll < 57 && !self.words4.is_empty() {
+            if let Some(w) = self.words4.iter().collect::<Vec<_>>().choose(&mut rng) {
+                let suffix = if rng.gen_range(0..10) == 0 {
+                    char::from(b'0' + rng.gen_range(0..10))
+                } else {
+                    ALPHABET[rng.gen_range(0..ALPHABET.len())] as char
+                };
+                return format!("{w}{suffix}");
+            }
+        }
 
         let patterns: [&[u8]; 4] = [
             b"CVCVC", b"CVCCV", b"CCVCV", b"VCVCV",
@@ -264,11 +277,11 @@ impl Generator {
     }
 }
 
-fn load_words(path: &str, fallback: &[&str]) -> HashSet<String> {
+fn load_words(path: &str, fallback: &[&str], expected_len: usize) -> HashSet<String> {
     let raw = fs::read_to_string(path).unwrap_or_else(|_| fallback.join("\n"));
     raw.lines()
         .map(|line| line.trim().to_ascii_lowercase())
-        .filter(|line| !line.is_empty() && line.len() == 5 && line.bytes().all(|b| b.is_ascii_lowercase()))
+        .filter(|line| !line.is_empty() && line.len() == expected_len && line.bytes().all(|b| b.is_ascii_lowercase()))
         .collect()
 }
 
@@ -345,6 +358,32 @@ const DEFAULT_WORDS: &[&str] = &[
     "snake","solar","sound","space","spice","spike","sport","stone","storm","sugar",
     "sweet","table","tiger","toast","touch","track","train","trust","unity","vivid",
     "water","whale","wheat","white","world","young","zebra",
+];
+
+const DEFAULT_WORDS4: &[&str] = &[
+    "able","acid","aged","also","area","army","away","baby","back","ball","band","bank",
+    "base","blue","body","book","born","calm","care","case","city","cold","come","cool",
+    "dark","data","dawn","days","deep","door","down","draw","drop","each","easy","edge",
+    "else","even","ever","face","fact","fair","fall","farm","fast","fear","feel","fire",
+    "fish","five","food","foot","form","free","from","full","game","gate","gift","girl",
+    "give","gold","good","gray","grow","half","hall","hand","hard","have","head","hear",
+    "heat","help","here","hero","high","hold","home","hope","hour","idea","into","iron",
+    "just","keep","kind","king","knee","know","lake","land","last","late","lead","left",
+    "life","like","line","lion","list","live","long","look","love","made","main","make",
+    "many","mark","mass","meal","mean","meet","mile","mind","mine","moon","more","most",
+    "move","name","near","neck","need","news","next","nice","nine","none","note","once",
+    "only","open","over","page","paid","pair","park","part","pass","past","path","peak",
+    "pick","pink","play","plus","pool","poor","pull","pure","push","race","rain","rare",
+    "rate","read","real","rest","rich","ride","ring","rise","road","rock","role","room",
+    "root","rule","safe","same","sand","save","seat","seed","seem","self","sell","send",
+    "ship","shop","show","shut","side","sign","sing","site","size","skin","slow","snow",
+    "soft","some","song","soon","star","stay","step","stop","such","sure","take","talk",
+    "task","team","tell","tend","term","test","text","than","that","them","then","they",
+    "thin","this","time","tiny","told","took","tool","town","tree","true","turn","type",
+    "unit","upon","used","user","vary","vast","very","view","vote","wait","walk","wall",
+    "want","warm","wash","wave","ways","week","well","went","were","west","what","when",
+    "wide","wife","wild","will","wind","wine","wing","wise","wish","with","wood","word",
+    "work","yard","yeah","year","your","zero","zone",
 ];
 
 const DEFAULT_BLACKLIST: &[&str] = &[
