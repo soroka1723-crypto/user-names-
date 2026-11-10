@@ -1,6 +1,9 @@
 mod generator;
 mod telegram_checker;
 
+use generator::{Generator, GeneratorStore};
+use telegram_checker::TelegramMtprotoChecker;
+
 use chrono::Local;
 use rayon::prelude::*;
 use reqwest::blocking::Client;
@@ -68,8 +71,9 @@ struct App {
     token: String,
     password: String,
     client: Client,
-    pool: rayon::ThreadPool,
     db: Mutex<Connection>,
+    runtime: tokio::runtime::Runtime,
+    generator: Option<Generator>,
     states: Mutex<HashMap<i64, UserState>>,
 }
 
@@ -81,7 +85,6 @@ impl App {
             .pool_max_idle_per_host(24)
             .user_agent("Mozilla/5.0 UsernameGeneratorBot/2.0")
             .build()?;
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(CHECK_THREADS).build()?;
         let db = Connection::open("username_data.db")?;
         db.busy_timeout(Duration::from_secs(5))?;
         db.execute_batch(
@@ -107,7 +110,33 @@ impl App {
              );
 "
         )?;
-        Ok(Self { token, password, client, pool, db: Mutex::new(db), states: Mutex::new(HashMap::new()) })
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()?;
+        let generator = match runtime.block_on(TelegramMtprotoChecker::connect_from_env()) {
+            Ok(Some(checker)) => {
+                let store = Arc::new(GeneratorStore::open("username_data.db")?);
+                Some(Generator::new(store, Arc::new(checker), 3))
+            }
+            Ok(None) => {
+                eprintln!("MTProto username checker is not configured; generation will remain disabled until a user session is added.");
+                None
+            }
+            Err(error) => {
+                eprintln!("MTProto username checker unavailable: {error}");
+                None
+            }
+        };
+        Ok(Self {
+            token,
+            password,
+            client,
+            db: Mutex::new(db),
+            states: Mutex::new(HashMap::new()),
+            runtime,
+            generator,
+        })
     }
 
     fn api(&self, method: &str, data: Value) -> Result<Value, String> {
@@ -240,67 +269,37 @@ impl App {
             return Err("limit".into());
         }
 
-        let known = {
-            let db = self.db.lock().unwrap();
-            let mut stmt = db.prepare("SELECT name FROM generated").map_err(|_|"db")?;
-            let rows = stmt.query_map([],|r|r.get::<_,String>(0)).map_err(|_|"db")?;
-            rows.collect::<rusqlite::Result<std::collections::HashSet<_>>>().map_err(|_|"db")?
-        };
-        // Port of Python find_free_names(): generate candidates in batches
-        // until five Telegram-confirmed free names are found or 20 seconds pass.
-        let deadline = Instant::now() + Duration::from_secs(CHECK_TIME_BUDGET_SECS);
-        let mut rng = rand::thread_rng();
-        let mut seen = std::collections::HashSet::new();
-        let mut free = Vec::with_capacity(NAMES_PER_REQUEST);
-        while free.len() < NAMES_PER_REQUEST && Instant::now() < deadline {
-            let mut batch = Vec::with_capacity(CHECK_THREADS * 2);
-            let mut guard = 0usize;
-            while batch.len() < CHECK_THREADS * 2 && guard < 500 {
-                guard += 1;
-                let name = generate_one(&mut rng);
-                // Python initializes smart=True and filters simple patterns.
-                if !is_simple(&name) && !known.contains(&name) && seen.insert(name.clone()) {
-                    batch.push(name);
-                }
-            }
-            if batch.is_empty() { break; }
-            let statuses: Vec<(String,&'static str)> = self.pool.install(|| {
-                batch.par_iter().map(|n|(n.clone(),self.check_name(n))).collect()
-            });
-            for (name,status) in statuses {
-                if status == "free" && free.len() < NAMES_PER_REQUEST {
-                    free.push(name);
-                }
-            }
-        }
-        if free.len() < NAMES_PER_REQUEST { return Err("none".into()); }
-
-        let mut db = self.db.lock().unwrap();
-        let tx = db.transaction().map_err(|_|"db")?;
-        let mut saved = Vec::new();
-        for name in free {
-            if tx.execute("INSERT OR IGNORE INTO generated(name,mode,created_at) VALUES(?1,'words',?2)",
-                params![name,Local::now().to_rfc3339()]).map_err(|_|"db")? > 0 {
-                saved.push(name);
-            }
-            if saved.len() == NAMES_PER_REQUEST { break; }
-        }
-        if saved.len() != NAMES_PER_REQUEST {
-            tx.rollback().map_err(|_|"db")?;
+        let generator = self.generator.as_ref().ok_or_else(|| "mtproto".to_string())?;
+        let candidates = self.runtime.block_on(generator.generate_free(5, 5, 5, id))?;
+        if candidates.len() != NAMES_PER_REQUEST {
             return Err("none".into());
         }
-        if !premium && !saved.is_empty() {
+        let names = candidates.into_iter().map(|candidate| candidate.name).collect::<Vec<_>>();
+
+        let mut db = self.db.lock().map_err(|_| "db".to_string())?;
+        let tx = db.transaction().map_err(|_| "db".to_string())?;
+        for name in &names {
+            tx.execute(
+                "INSERT OR IGNORE INTO generated(name,mode,created_at) VALUES(?1,'five_letter',?2)",
+                params![name, Local::now().to_rfc3339()],
+            ).map_err(|_| "db".to_string())?;
+        }
+        if !premium {
             if used >= DAILY_REQUEST_LIMIT && bonus > 0 {
-                tx.execute("UPDATE bonus_requests SET amount=amount-1,updated_at=?1 WHERE user_id=?2 AND amount>0",
-                    params![Local::now().to_rfc3339(),id]).map_err(|_|"db")?;
+                tx.execute(
+                    "UPDATE bonus_requests SET amount=amount-1,updated_at=?1 WHERE user_id=?2 AND amount>0",
+                    params![Local::now().to_rfc3339(), id],
+                ).map_err(|_| "db".to_string())?;
             } else {
-                tx.execute("INSERT INTO daily_requests(user_id,usage_date,amount) VALUES(?1,?2,1)
-                    ON CONFLICT(user_id,usage_date) DO UPDATE SET amount=amount+1",
-                    params![id,Self::today()]).map_err(|_|"db")?;
+                tx.execute(
+                    "INSERT INTO daily_requests(user_id,usage_date,amount) VALUES(?1,?2,1)
+                     ON CONFLICT(user_id,usage_date) DO UPDATE SET amount=amount+1",
+                    params![id, Self::today()],
+                ).map_err(|_| "db".to_string())?;
             }
         }
-        tx.commit().map_err(|_|"db")?;
-        if saved.is_empty() { Err("none".into()) } else { Ok(saved) }
+        tx.commit().map_err(|_| "db".to_string())?;
+        Ok(names)
     }
 
     fn limit_text(&self, id: i64) -> String {
@@ -430,11 +429,12 @@ impl App {
         match text {
             "🎲 Генерировать" => match self.generate(id) {
                 Ok(names) => {
-                    let body = format!("🎲 ГОТОВО!\n\n{}\n\nПроверка: каждый вариант проверен через t.me.",
+                    let body = format!("🎲 ГОТОВО!\n\n{}\n\nПроверка: каждый вариант подтверждён Telegram MTProto.",
                         names.iter().map(|n|format!("✅ @{n} — свободен")).collect::<Vec<_>>().join("\n"));
                     self.send(chat,&body,Some(&[&["🎲 Генерировать"],&["📊 Мой лимит"],&["👑 Купить Premium"],&["💬 Поддержка"]]));
                 }
                 Err(e) if e=="limit" => { self.send(chat,&format!("⛔ Дневной лимит исчерпан.\n\n👑 Premium: {PREMIUM_CONTACT}"),None); }
+                Err(e) if e=="mtproto" => { self.send(chat,"⚠️ Проверка Telegram MTProto не настроена. Нужна авторизованная пользовательская сессия Telegram.",None); }
                 Err(_) => { self.send(chat,"😕 Сейчас не удалось найти свободные варианты. Попробуй ещё раз чуть позже. Лимит не списан.",None); }
             },
             "📊 Мой лимит" => { let body=self.limit_text(id); self.send(chat,&body,None); }
