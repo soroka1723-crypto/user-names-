@@ -1,0 +1,6 @@
+/target/
+*.db
+*.db-shm
+*.db-wal
+username_generator.log
+username_backup_*.db
