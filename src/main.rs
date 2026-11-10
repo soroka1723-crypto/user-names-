@@ -1,4 +1,5 @@
 mod generator;
+mod telegram_checker;
 
 use chrono::Local;
 use rayon::prelude::*;
