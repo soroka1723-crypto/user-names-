@@ -21,6 +21,9 @@ jobs:
     env:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+      TG_API_ID: ${{ secrets.TG_API_ID }}
+      TG_API_HASH: ${{ secrets.TG_API_HASH }}
+      TG_SESSION_B64: ${{ secrets.TG_SESSION_B64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -38,6 +41,9 @@ jobs:
           path: |
             username_data.db
             username_data.db-wal
+            telegram_user.session
+            telegram_user.session-wal
+            telegram_user.session-shm
           key: username-db-${{ github.run_id }}
           restore-keys: |
             username-db-
