@@ -21,9 +21,6 @@ jobs:
     env:
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
       ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
-      TG_API_ID: ${{ secrets.TG_API_ID }}
-      TG_API_HASH: ${{ secrets.TG_API_HASH }}
-      TG_SESSION_B64: ${{ secrets.TG_SESSION_B64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
