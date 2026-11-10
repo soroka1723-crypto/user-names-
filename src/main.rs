@@ -16,50 +16,12 @@ const ADMIN_ID: i64 = 7502792642;
 const DAILY_REQUEST_LIMIT: i64 = 20;
 const NAMES_PER_REQUEST: usize = 3;
 const CHECK_THREADS: usize = 12;
-const MAX_CHECK_BATCHES: usize = 3;
-const CHECK_TIMEOUT_SECS: u64 = 3;
+const MAX_CHECK_BATCHES: usize = 10;
+const CHECK_TIMEOUT_SECS: u64 = 4;
 const PREMIUM_CONTACT: &str = "@xldzo";
 
 const WORDS: &[&str] = &[
-    "amber","angel","apple","arbor","argue","arise","aside","audio","awake","baker",
-    "basic","beach","begin","below","berry","birth","black","blaze","bloom","board",
-    "brave","bread","brick","bring","broad","brown","brush","cabin","cable","camel",
-    "candy","cargo","cause","chain","chair","charm","chase","cheer","chess","chief",
-    "child","chime","civic","claim","clean","clear","clerk","cliff","climb","clock",
-    "cloud","coach","coast","color","coral","couch","cover","craft","crane","crash",
-    "cream","crime","cross","crowd","crown","dance","delta","demon","depth","diary",
-    "dream","dress","drift","eager","eagle","early","earth","eight","elite","empty",
-    "enemy","enjoy","enter","entry","equal","error","event","every","faith","fancy",
-    "feast","fence","fever","field","final","flame","flash","fleet","floor","focus",
-    "force","frame","fresh","front","fruit","giant","given","glass","globe","grace",
-    "grade","grain","grand","grant","grass","great","green","group","guard","guess",
-    "guest","guide","habit","happy","heart","honey","honor","horse","hotel","house",
-    "human","humor","ideal","image","index","inner","input","ivory","jelly","jewel",
-    "joint","judge","juice","karma","knife","known","label","laser","later","laugh",
-    "layer","learn","lemon","level","light","limit","linen","liver","local","logic",
-    "magic","major","maple","march","match","maybe","medal","media","mercy","metal",
-    "micro","might","minor","model","money","month","moral","motor","mount","mouse",
-    "music","nerve","never","night","noble","noise","north","novel","ocean","offer",
-    "often","olive","omega","onion","orbit","order","other","outer","owner","paint",
-    "panel","paper","party","peace","pearl","phase","phone","photo","piano","piece",
-    "pilot","pixel","place","plain","plane","plant","plate","point","power","press",
-    "price","pride","prime","print","prior","prize","proof","proud","queen","quick",
-    "quiet","radio","raise","range","rapid","ratio","reach","react","ready","realm",
-    "rebel","refer","relax","reply","rider","river","robot","rocky","rough","round",
-    "royal","ruler","rural","saint","scale","scene","scope","score","sense","serve",
-    "seven","shade","shake","shall","shape","share","sharp","sheep","sheet","shelf",
-    "shell","shift","shine","shirt","shock","shore","short","shown","sight","since",
-    "skill","sleep","slice","slide","small","smart","smile","smoke","solid","solve",
-    "sound","south","space","spare","speak","speed","spice","spike","spirit","split",
-    "sport","staff","stage","stand","start","state","steam","steel","stick","still",
-    "stone","store","storm","story","style","sugar","sunny","super","sweet","swift",
-    "table","taste","teach","thank","theme","there","thick","thing","think","third",
-    "thorn","three","throw","tight","timer","title","today","token","topic","total",
-    "touch","tower","trace","track","trade","train","treat","trend","trial","trust",
-    "truth","under","union","unity","until","upper","upset","urban","usage","usual",
-    "valid","value","video","visit","vital","voice","waste","watch","water","wheel",
-    "where","which","while","white","whole","woman","world","worry","worth","would",
-    "wrist","write","wrong","young","youth","zebra"
+    "abode", "abort", "abyss", "acorn", "acrid", "acute", "adept", "adorn", "afire", "agate", "agile", "aloft", "amity", "ample", "anise", "apace", "ardor", "aroma", "ashen", "askew", "atlas", "attic", "azure", "basil", "baton", "bevel", "bicep", "bison", "bland", "bleat", "bliss", "blitz", "bogus", "booth", "brash", "brine", "broil", "bulge", "burly", "cairn", "caper", "carat", "carve", "cedar", "chafe", "chasm", "chide", "chirp", "chore", "churn", "cider", "cling", "clink", "clout", "comet", "conch", "copse", "covet", "cramp", "crave", "credo", "creek", "crepe", "crisp", "crypt", "cubic", "curio", "cynic", "daisy", "debit", "debut", "decal", "decoy", "deity", "deter", "digit", "dilly", "dirge", "disco", "ditch", "divot", "dodge", "dowel", "dregs", "druid", "duvet", "ebony", "edict", "elope", "ember", "emote", "ensue", "envoy", "epoxy", "ethos", "evoke", "exalt", "facet", "fable", "faint", "farce", "femur", "ferry", "ficus", "fjord", "flair", "flint", "fluke", "foray", "forge", "forte", "foyer", "frail", "frond", "fudge", "gamut", "giddy", "girth", "gleam", "gloat", "gnome", "gorge", "gourd", "grate", "gravy", "grove", "guava", "gulch", "gusty", "haiku", "haven", "havoc", "helix", "heron", "hinge", "hippo", "hoist", "hokey", "hound", "humus", "hutch", "icily", "inept", "inert", "irate", "irony", "itchy", "jaunt", "jazzy", "jiffy", "juror", "kaput", "kayak", "knack", "knoll", "koala", "lager", "lance", "lanky", "latch", "lathe", "leery", "ledge", "liege", "lilac", "limbo", "lithe", "loamy", "locus", "lurid", "lyric", "magma", "mangy", "manor", "mason", "mealy", "mirth", "mocha", "molar", "mossy", "mural", "nadir", "nanny", "nasal", "navel", "neigh", "niche", "nifty", "nymph", "ochre", "offal", "olden", "ombre", "optic", "otter", "oxide", "pagan", "palsy", "panda", "parer", "parka", "pecan", "penal", "perch", "petal", "pithy", "plaid", "plume", "poise", "prawn", "prism", "privy", "prong", "quail", "quirk", "rabid", "raven", "relic", "remit", "rivet", "rowan", "sable", "salsa", "satin", "scald", "scant", "scone", "scour", "serif", "shale", "shard", "sheen", "shoal", "shrub", "siege", "sieve", "sinew", "skiff", "slang", "slate", "sleek", "sloth", "snare", "snide", "soggy", "spool", "spurn", "squid", "stark", "stoic", "stoke", "stork", "stout", "strut", "stump", "sully", "surge", "swarm", "swath", "swoop", "tacit", "tally", "tango", "taunt", "tepid", "terse", "thrum", "tidal", "tithe", "toxin", "trawl", "truce", "tulip", "tweak", "udder", "ulcer", "umbra", "unzip", "usurp", "vague", "valet", "vapor", "vault", "venom", "verge", "vexed", "vigor", "viper", "visor", "vouch", "waltz", "weary", "whelp", "whisk", "wince", "witty", "wring", "yeast", "yearn", "yokel", "zesty"
 ];
 
 #[derive(Clone, Default)]
@@ -189,13 +151,22 @@ impl App {
         if lower.contains("tgme_page_extra") || lower.contains("tgme_page_photo") {
             return "taken";
         }
-        static META: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        let re = META.get_or_init(|| regex::Regex::new(r#"(?i)<meta\s+property="og:title"\s+content="([^"]*)""#).expect("valid meta regex"));
-        if let Some(capture) = re.captures(&page) {
-            let title = capture.get(1).map(|m|m.as_str()).unwrap_or("").to_ascii_lowercase();
-            if title == format!("telegram: contact @{name}") { return "free"; }
-            if title.starts_with("telegram: contact @") { return "unknown"; }
-            if !title.is_empty() { return "taken"; }
+        static META_TAG: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        static OG_PROPERTY: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        static CONTENT: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let tags = META_TAG.get_or_init(|| regex::Regex::new(r#"(?is)<meta\b[^>]*>"#).expect("valid meta tag regex"));
+        let property = OG_PROPERTY.get_or_init(|| regex::Regex::new(r#"(?i)property\s*=\s*["']og:title["']"#).expect("valid property regex"));
+        let content = CONTENT.get_or_init(|| regex::Regex::new(r#"(?i)content\s*=\s*["']([^"']*)["']"#).expect("valid content regex"));
+        for tag in tags.find_iter(&page) {
+            let tag = tag.as_str();
+            if property.is_match(tag) {
+                if let Some(capture) = content.captures(tag) {
+                    let title = capture.get(1).map(|m|m.as_str()).unwrap_or("").trim().to_ascii_lowercase();
+                    if title == format!("telegram: contact @{name}") { return "free"; }
+                    if title.starts_with("telegram: contact @") { return "unknown"; }
+                    if !title.is_empty() { return "taken"; }
+                }
+            }
         }
         "unknown"
     }
