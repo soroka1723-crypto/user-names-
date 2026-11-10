@@ -1,0 +1,7 @@
+/target/
+/username_data.db
+/username_data.db-shm
+/username_data.db-wal
+/telegram_user.session
+/telegram_user.session-shm
+/telegram_user.session-wal
