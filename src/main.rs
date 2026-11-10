@@ -9,14 +9,14 @@ use std::{
     env,
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const ADMIN_ID: i64 = 7502792642;
 const DAILY_REQUEST_LIMIT: i64 = 20;
 const NAMES_PER_REQUEST: usize = 5;
 const CHECK_THREADS: usize = 12;
-const MAX_CHECK_BATCHES: usize = 10;
+const CHECK_TIME_BUDGET_SECS: u64 = 20;
 const CHECK_TIMEOUT_SECS: u64 = 4;
 const PREMIUM_CONTACT: &str = "@xldzo";
 
@@ -93,7 +93,7 @@ fn combo_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
     let first = rng.gen_range(0..THREE_LETTER_WORDS.len());
     let mut second = rng.gen_range(0..THREE_LETTER_WORDS.len());
     while second == first { second = rng.gen_range(0..THREE_LETTER_WORDS.len()); }
-    format!("{}{}",THREE_LETTER_WORDS[first],THREE_LETTER_WORDS[second])
+    format!("{}{}",THREE_LETTER_WORDS[first],&THREE_LETTER_WORDS[second][..2])
 }
 
 fn generate_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
@@ -257,26 +257,29 @@ impl App {
         "unknown"
     }
 
-    fn check_fragment(&self, name: &str) -> Option<bool> {
+    // Same behavior as the original Python check_fragment:
+    // Fragment is an additional blocklist; a failed request does not cancel
+    // two successful Telegram availability checks.
+    fn check_fragment(&self, name: &str) -> bool {
         let url = format!("https://fragment.com/username/{name}");
-        let response = self.client.get(url).timeout(Duration::from_secs(CHECK_TIMEOUT_SECS)).send().ok()?;
-        if !response.status().is_success() { return None; }
-        let page = response.text().ok()?;
+        let response = match self.client.get(url).timeout(Duration::from_secs(CHECK_TIMEOUT_SECS)).send() {
+            Ok(r) if r.status().is_success() => r,
+            _ => return false,
+        };
+        let page = match response.text() { Ok(v) => v, Err(_) => return false };
         static STATUS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        let re = STATUS.get_or_init(|| regex::Regex::new(r#"class="[^"]*tm-section-header-status[^"]*tm-status-(\w+)"#).expect("valid Fragment regex"));
-        Some(re.captures(&page).and_then(|c|c.get(1)).map(|m|matches!(m.as_str(),"avail"|"auction"|"sold")).unwrap_or(false))
+        let re = STATUS.get_or_init(|| regex::Regex::new(r#"class="[^"]*tm-section-header-status[^"]*tm-status-(\w+)""#).expect("valid Fragment regex"));
+        re.captures(&page).and_then(|c|c.get(1))
+            .map(|m|matches!(m.as_str(),"avail"|"auction"|"sold")).unwrap_or(false)
     }
 
     fn check_name(&self, name: &str) -> &'static str {
         if !word_ok(name) { return "invalid"; }
         if self.check_tme_once(name) != "free" { return "unknown_or_taken"; }
-        thread::sleep(Duration::from_millis(450));
+        thread::sleep(Duration::from_millis(500));
         if self.check_tme_once(name) != "free" { return "unknown_or_taken"; }
-        match self.check_fragment(name) {
-            Some(true) => "taken",
-            Some(false) => "free",
-            None => "unknown",
-        }
+        if self.check_fragment(name) { return "taken"; }
+        "free"
     }
 
     fn generate(&self, id: i64) -> Result<Vec<String>, String> {
@@ -293,31 +296,33 @@ impl App {
             let rows = stmt.query_map([],|r|r.get::<_,String>(0)).map_err(|_|"db")?;
             rows.collect::<rusqlite::Result<std::collections::HashSet<_>>>().map_err(|_|"db")?
         };
+        // Port of Python find_free_names(): generate candidates in batches
+        // until five Telegram-confirmed free names are found or 20 seconds pass.
+        let deadline = Instant::now() + Duration::from_secs(CHECK_TIME_BUDGET_SECS);
         let mut rng = rand::thread_rng();
-        let mut candidates = std::collections::HashSet::new();
-        for _ in 0..600 {
-            let name = generate_word(&mut rng);
-            if word_ok(&name) && !known.contains(&name) {
-                candidates.insert(name);
+        let mut seen = std::collections::HashSet::new();
+        let mut free = Vec::with_capacity(NAMES_PER_REQUEST);
+        while free.len() < NAMES_PER_REQUEST && Instant::now() < deadline {
+            let mut batch = Vec::with_capacity(CHECK_THREADS * 2);
+            let mut guard = 0usize;
+            while batch.len() < CHECK_THREADS * 2 && guard < 500 {
+                guard += 1;
+                let name = generate_word(&mut rng);
+                if word_ok(&name) && !known.contains(&name) && seen.insert(name.clone()) {
+                    batch.push(name);
+                }
             }
-        }
-        let mut candidates = candidates.into_iter().collect::<Vec<_>>();
-        candidates.shuffle(&mut rng);
-        let mut free = Vec::new();
-        // Work in small parallel batches; stop as soon as 3 free names are found.
-        for batch in candidates.chunks(CHECK_THREADS).take(MAX_CHECK_BATCHES) {
+            if batch.is_empty() { break; }
             let statuses: Vec<(String,&'static str)> = self.pool.install(|| {
                 batch.par_iter().map(|n|(n.clone(),self.check_name(n))).collect()
             });
             for (name,status) in statuses {
-                if status == "free" {
+                if status == "free" && free.len() < NAMES_PER_REQUEST {
                     free.push(name);
-                    if free.len() >= NAMES_PER_REQUEST { break; }
                 }
             }
-            if free.len() >= NAMES_PER_REQUEST { break; }
         }
-        if free.is_empty() { return Err("none".into()); }
+        if free.len() < NAMES_PER_REQUEST { return Err("none".into()); }
 
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction().map_err(|_|"db")?;
@@ -328,6 +333,10 @@ impl App {
                 saved.push(name);
             }
             if saved.len() == NAMES_PER_REQUEST { break; }
+        }
+        if saved.len() != NAMES_PER_REQUEST {
+            tx.rollback().map_err(|_|"db")?;
+            return Err("none".into());
         }
         if !premium && !saved.is_empty() {
             if used >= DAILY_REQUEST_LIMIT && bonus > 0 {
