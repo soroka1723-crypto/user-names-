@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use rand::{seq::SliceRandom, Rng};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::{
-    collections::{HashSet, VecDeque},
+    collections::HashSet,
     fs,
     path::Path,
     sync::{Arc, Mutex},
