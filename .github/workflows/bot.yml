@@ -9,7 +9,7 @@ on:
     - cron: '20 12 * * *'
   workflow_dispatch:
 concurrency:
-  group: username-generator-bot
+  group: username-generator-bot-compact
   cancel-in-progress: true
 permissions:
   contents: read
