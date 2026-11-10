@@ -44,6 +44,7 @@ jobs:
       - name: Build
         run: cargo build --release
       - name: Run bot for one session
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
         shell: bash
         run: |
           set +e
