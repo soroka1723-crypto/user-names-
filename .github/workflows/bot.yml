@@ -47,6 +47,8 @@ jobs:
           key: username-db-${{ github.run_id }}
           restore-keys: |
             username-db-
+      - name: Test
+        run: cargo test --release
       - name: Build
         run: cargo build --release
       - name: Run bot for one session
