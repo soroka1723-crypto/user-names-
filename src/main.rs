@@ -18,8 +18,6 @@ const NAMES_PER_REQUEST: usize = 3;
 const CHECK_THREADS: usize = 12;
 const CHECK_TIMEOUT_SECS: u64 = 4;
 const PREMIUM_CONTACT: &str = "@xldzo";
-const PREMIUM_GIFT_EMOJI: &str = "🧸";
-const PREMIUM_GIFT_STARS: i64 = 15;
 
 const WORDS: &[&str] = &[
     "amber","angel","apple","arbor","argue","arise","aside","audio","awake","baker",
@@ -107,10 +105,7 @@ impl App {
              CREATE TABLE IF NOT EXISTS generated(
                name TEXT PRIMARY KEY, mode TEXT, created_at TEXT
              );
-             CREATE TABLE IF NOT EXISTS gift_payments(
-               gift_key TEXT PRIMARY KEY, user_id INTEGER, gift_id TEXT,
-               stars INTEGER, created_at TEXT
-             );"
+"
         )?;
         Ok(Self { token, password, client, pool, db: Mutex::new(db), states: Mutex::new(HashMap::new()) })
     }
@@ -193,10 +188,14 @@ impl App {
         if lower.contains("tgme_page_extra") || lower.contains("tgme_page_photo") {
             return "taken";
         }
-        let needle = format!("telegram: contact @{name}");
-        if lower.contains(&needle) { return "free"; }
-        if lower.contains("telegram: contact @") { return "unknown"; }
-        if lower.contains("tgme_page_title") { return "taken"; }
+        static META: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let re = META.get_or_init(|| regex::Regex::new(r#"(?i)<meta\s+property="og:title"\s+content="([^"]*)""#).expect("valid meta regex"));
+        if let Some(capture) = re.captures(&page) {
+            let title = capture.get(1).map(|m|m.as_str()).unwrap_or("").to_ascii_lowercase();
+            if title == format!("telegram: contact @{name}") { return "free"; }
+            if title.starts_with("telegram: contact @") { return "unknown"; }
+            if !title.is_empty() { return "taken"; }
+        }
         "unknown"
     }
 
@@ -217,15 +216,19 @@ impl App {
                 .collect::<rusqlite::Result<std::collections::HashSet<_>>>().map_err(|_|"db")?
         };
         candidates.retain(|n| n.len()==5 && n.bytes().all(|b|b.is_ascii_lowercase()) && !known.contains(n));
-        let statuses: Vec<(String,&'static str)> = self.pool.install(|| {
-            candidates.par_iter().map(|n|(n.clone(),self.check_name(n))).collect()
-        });
         let mut free = Vec::new();
-        for (name,status) in statuses {
-            if status == "free" {
-                free.push(name);
-                if free.len() >= NAMES_PER_REQUEST { break; }
+        // Work in small parallel batches; stop as soon as 3 free names are found.
+        for batch in candidates.chunks(CHECK_THREADS) {
+            let statuses: Vec<(String,&'static str)> = self.pool.install(|| {
+                batch.par_iter().map(|n|(n.clone(),self.check_name(n))).collect()
+            });
+            for (name,status) in statuses {
+                if status == "free" {
+                    free.push(name);
+                    if free.len() >= NAMES_PER_REQUEST { break; }
+                }
             }
+            if free.len() >= NAMES_PER_REQUEST { break; }
         }
         if free.is_empty() { return Err("none".into()); }
 
@@ -389,7 +392,7 @@ impl App {
             },
             "📊 Мой лимит" => { let body=self.limit_text(id); self.send(chat,&body,None); }
             "👑 Купить Premium" => {
-                let body=format!("👑 PREMIUM UNLIMITED\n\nДля покупки напиши {PREMIUM_CONTACT}.\nPremium снимает дневной лимит.\n\nМожно отправить подарок {PREMIUM_GIFT_EMOJI} ({PREMIUM_GIFT_STARS} ⭐) через Telegram Business — Premium включится автоматически.");
+                let body=format!("👑 PREMIUM UNLIMITED\n\nДля покупки и активации напиши {PREMIUM_CONTACT}.\nPremium снимает дневной лимит.");
                 self.send(chat,&body,None);
             }
             "💬 Поддержка" => { self.send(chat,&format!("💬 Поддержка: {PREMIUM_CONTACT}\nТвой ID: {id}"),None); }
@@ -410,47 +413,9 @@ impl App {
             }
             _ => {}
         }
-        // Admin asks for a recipient ID before typing a private message.
-        if id==ADMIN_ID && state.step=="message_id" {
-            if let Ok(target)=text.parse::<i64>() {
-                state.target=target; state.step="message_text".into();
-                self.send(chat,"Теперь отправь текст сообщения:",None);
-            } else { self.send(chat,"Введи числовой Telegram ID.",None); }
-            self.set_state(id,state);
-        }
     }
 
-    fn business_message(&self, message: &Value) {
-        let gift=&message["gift"];
-        if gift.is_null() { return; }
-        let user=&message["from"];
-        let uid=user["id"].as_i64().unwrap_or(0);
-        let chat=message["chat"]["id"].as_i64().unwrap_or(0);
-        if uid<=0 || uid!=chat { return; }
-        let item=&gift["gift"];
-        let emoji=item["sticker"]["emoji"].as_str().unwrap_or("");
-        let stars=item["star_count"].as_i64().unwrap_or(0);
-        if emoji!=PREMIUM_GIFT_EMOJI || stars<PREMIUM_GIFT_STARS {
-            let conn=message["business_connection_id"].as_str();
-            self.send_raw(chat,&format!("Для Premium нужен подарок {PREMIUM_GIFT_EMOJI} стоимостью от {PREMIUM_GIFT_STARS} ⭐."),None,conn);
-            return;
-        }
-        let key=gift["owned_gift_id"].as_str().map(str::to_string)
-            .unwrap_or_else(||format!("{chat}:{}",message["message_id"].as_i64().unwrap_or(0)));
-        let mut db=self.db.lock().unwrap();
-        let inserted=db.execute("INSERT OR IGNORE INTO gift_payments(gift_key,user_id,gift_id,stars,created_at) VALUES(?1,?2,?3,?4,?5)",
-            params![key,uid,item["id"].as_str().unwrap_or(""),stars,Local::now().to_rfc3339()]).unwrap_or(0);
-        if inserted>0 {
-            let _=db.execute("INSERT OR REPLACE INTO premium_users(user_id,activated_at,activated_by) VALUES(?1,?2,0)",
-                params![uid,Local::now().to_rfc3339()]);
-        }
-        drop(db);
-        if inserted>0 {
-            self.send_raw(chat,"👑 Спасибо! PREMIUM UNLIMITED активирован.",None,message["business_connection_id"].as_str());
-            self.send(ADMIN_ID,&format!("🧸 Premium активирован за подарок. Пользователь: {uid}."),None);
-        }
-    }
-}
+
 
 fn main() {
     let token=env::var("BOT_TOKEN").unwrap_or_default().trim().to_string();
@@ -464,14 +429,12 @@ fn main() {
     }
     let mut offset=0i64;
     loop {
-        match app.api("getUpdates",json!({"offset":offset,"timeout":25,"allowed_updates":["message","business_message"]})) {
+        match app.api("getUpdates",json!({"offset":offset,"timeout":25,"allowed_updates":["message"]})) {
             Ok(updates)=>{
                 if let Some(items)=updates.as_array() {
                     for update in items {
                         offset=update["update_id"].as_i64().unwrap_or(offset)+1;
-                        if !update["business_message"].is_null() {
-                            app.business_message(&update["business_message"]);
-                        } else if !update["message"].is_null() {
+                        if !update["message"].is_null() {
                             app.handle(&update["message"]);
                         }
                     }
