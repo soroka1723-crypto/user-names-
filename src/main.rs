@@ -16,7 +16,8 @@ const ADMIN_ID: i64 = 7502792642;
 const DAILY_REQUEST_LIMIT: i64 = 20;
 const NAMES_PER_REQUEST: usize = 3;
 const CHECK_THREADS: usize = 12;
-const CHECK_TIMEOUT_SECS: u64 = 4;
+const MAX_CHECK_BATCHES: usize = 3;
+const CHECK_TIMEOUT_SECS: u64 = 3;
 const PREMIUM_CONTACT: &str = "@xldzo";
 
 const WORDS: &[&str] = &[
@@ -219,7 +220,7 @@ impl App {
         candidates.retain(|n| n.len()==5 && n.bytes().all(|b|b.is_ascii_lowercase()) && !known.contains(n));
         let mut free = Vec::new();
         // Work in small parallel batches; stop as soon as 3 free names are found.
-        for batch in candidates.chunks(CHECK_THREADS) {
+        for batch in candidates.chunks(CHECK_THREADS).take(MAX_CHECK_BATCHES) {
             let statuses: Vec<(String,&'static str)> = self.pool.install(|| {
                 batch.par_iter().map(|n|(n.clone(),self.check_name(n))).collect()
             });
