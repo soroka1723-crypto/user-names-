@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 concurrency:
   group: username-generator-bot
-  cancel-in-progress: false
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
