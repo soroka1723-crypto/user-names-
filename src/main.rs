@@ -25,6 +25,33 @@ const PREMIUM_CONTACT: &str = "@xldzo";
 // The pseudo_word/combo_word/RARE_WORDS helpers are dormant in that runtime path.
 const LETTERS: &[u8; 26] = b"abcdefghijklmnopqrstuvwxyz";
 
+fn is_simple(name: &str) -> bool {
+    if name.len() != 5 { return true; }
+    let bytes = name.as_bytes();
+    let mut counts = [0u8; 26];
+    let mut unique = 0usize;
+    for &b in bytes {
+        if !b.is_ascii_lowercase() { return true; }
+        let slot = (b - b'a') as usize;
+        if counts[slot] == 0 { unique += 1; }
+        counts[slot] += 1;
+        if counts[slot] > 2 { return true; }
+    }
+    if unique < 4 { return true; }
+    for i in 0..4 {
+        if bytes[i] == bytes[i + 1] { return true; }
+    }
+    for i in 0..3 {
+        let a = bytes[i] as i16;
+        let b = bytes[i + 1] as i16;
+        let c = bytes[i + 2] as i16;
+        if (b == a + 1 && c == b + 1) || (b == a - 1 && c == b - 1) {
+            return true;
+        }
+    }
+    ["aaa", "bbb", "ccc"].iter().any(|p| name.contains(p))
+}
+
 fn generate_one<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
     (0..5)
         .map(|_| LETTERS[rng.gen_range(0..LETTERS.len())] as char)
@@ -228,7 +255,8 @@ impl App {
             while batch.len() < CHECK_THREADS * 2 && guard < 500 {
                 guard += 1;
                 let name = generate_one(&mut rng);
-                if !known.contains(&name) && seen.insert(name.clone()) {
+                // Python initializes smart=True and filters simple patterns.
+                if !is_simple(&name) && !known.contains(&name) && seen.insert(name.clone()) {
                     batch.push(name);
                 }
             }
