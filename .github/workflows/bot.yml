@@ -43,7 +43,7 @@ jobs:
       - name: Build
         run: cargo build --release
       - name: Run bot for one session
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'Run one-hour bot test after manifest fix')
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'Run one-hour bot test after manifest fix' || github.event.head_commit.message == 'Fix Rust string comparison in Telegram retry handler')
         shell: bash
         run: |
           set +e
