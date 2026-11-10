@@ -46,11 +46,11 @@ jobs:
       - name: Run Rust tests
         run: cargo test --release
       - name: Run bot for one session
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/audit/rust-full-port-fix'))
         shell: bash
         run: |
           set +e
-          timeout --signal=INT --kill-after=15s 4h58m ./target/release/username_generator_bot
+          timeout --signal=INT --kill-after=15s 5h ./target/release/username_generator_bot
           status=$?
           if [[ "$status" -eq 124 || "$status" -eq 130 ]]; then
             echo "Scheduled session finished normally."
