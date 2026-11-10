@@ -175,43 +175,84 @@ impl Generator {
         let max_attempts = count.saturating_mul(2500).max(5000);
 
         while candidates.len() < count && attempts < max_attempts {
-            attempts += 1;
-            let name = self.make_candidate();
-            if !validate_username(&name) {
-                debug!(%name, reason = "validator", "candidate discarded");
-                continue;
+            let mut batch = Vec::with_capacity(DEFAULT_CONCURRENCY);
+            while batch.len() < DEFAULT_CONCURRENCY && attempts < max_attempts {
+                attempts += 1;
+                let name = self.make_candidate();
+                if !validate_username(&name) {
+                    debug!(%name, reason = "validator", "candidate discarded");
+                    continue;
+                }
+                if self.blacklist.contains(&name) {
+                    debug!(%name, reason = "blacklist", "candidate discarded");
+                    continue;
+                }
+                if !queued.insert(name.clone()) {
+                    debug!(%name, reason = "batch_duplicate", "candidate discarded");
+                    continue;
+                }
+                if self.store.was_seen(user_id, &name)? {
+                    debug!(%name, reason = "user_seen", "candidate discarded");
+                    continue;
+                }
+                batch.push(name);
             }
-            if self.blacklist.contains(&name) {
-                debug!(%name, reason = "blacklist", "candidate discarded");
-                continue;
-            }
-            if !queued.insert(name.clone()) {
-                debug!(%name, reason = "batch_duplicate", "candidate discarded");
-                continue;
-            }
-            if self.store.was_seen(user_id, &name)? {
-                debug!(%name, reason = "user_seen", "candidate discarded");
-                continue;
-            }
-
-            let now = now_unix();
-            let cached = self.store.cached(&name)?;
-            let status = match cached {
-                Some(c) if now.saturating_sub(c.checked_at) < CACHE_TTL_SECS
-                    && c.status != Status::Unknown => c.status,
-                _ => self.check_twice(&name).await,
-            };
-            if status != Status::Free {
-                info!(%name, ?status, "candidate not confirmed free");
-                continue;
+            if batch.is_empty() {
+                break;
             }
 
-            let checked_at = now_unix();
-            self.store.cache(&name, Status::Free, checked_at)?;
-            let score = score_name(&name, &self.words);
-            candidates.push(Candidate { name, len: 5, score, status, checked_at });
+            let mut to_check = Vec::new();
+            for name in batch {
+                let now = now_unix();
+                match self.store.cached(&name)? {
+                    Some(cached) if now.saturating_sub(cached.checked_at) < CACHE_TTL_SECS
+                        && cached.status != Status::Unknown => {
+                            if cached.status == Status::Free {
+                                candidates.push(Candidate {
+                                    name,
+                                    len: 5,
+                                    score: 0,
+                                    status: Status::Free,
+                                    checked_at: cached.checked_at,
+                                });
+                            } else {
+                                debug!(%name, status = ?cached.status, "cached username not free");
+                            }
+                        }
+                    _ => to_check.push(name),
+                }
+            }
+
+            let statuses = futures_util::future::join_all(
+                to_check.iter().map(|name| async move {
+                    (name.clone(), self.check_twice(name).await)
+                })
+            ).await;
+
+            for (name, status) in statuses {
+                let checked_at = now_unix();
+                self.store.cache(&name, status, checked_at)?;
+                if status == Status::Free && candidates.len() < count {
+                    candidates.push(Candidate {
+                        score: score_name(&name, &self.words),
+                        name,
+                        len: 5,
+                        status,
+                        checked_at,
+                    });
+                } else {
+                    info!(%name, ?status, "candidate not confirmed free");
+                }
+                if candidates.len() >= count {
+                    break;
+                }
+            }
         }
-
+        for candidate in &mut candidates {
+            if candidate.score == 0 {
+                candidate.score = score_name(&candidate.name, &self.words);
+            }
+        }
         candidates.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.name.cmp(&b.name)));
         for item in &candidates {
             self.store.mark_seen(user_id, &item.name)?;
