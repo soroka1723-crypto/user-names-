@@ -356,8 +356,6 @@ impl App {
     }
     fn check_favorites_text(&self,id:i64)->String{let names=self.names_from("favorites",id,CHECK_FAVORITES_LIMIT as i64);if names.is_empty(){return "⭐ Избранное пусто. Проверять нечего.".into();}let outcomes:Vec<_>=self.check_pool.install(||names.par_iter().map(|n|(n.clone(),self.check_name(n))).collect());let mut lines=vec!["✅ ПРОВЕРКА ИЗБРАННОГО".into(),"━━━━━━━━━━━━━━━━━━".into()];for (n,s) in outcomes{lines.push(format!("@{n} — {}",match s{"free"=>"✅ свободен","taken"=>"❌ занят",_=>"❓ не удалось проверить"}));}lines.join("\n")}
 }
-fn stats_placeholder()->usize{0}
-
 impl App {
     fn business_message(&self,m:&Value){
         let gift=&m["gift"];if gift.is_null(){return;}let user=&m["from"];let chat=&m["chat"];let uid=user["id"].as_i64().unwrap_or(0);let cid=chat["id"].as_i64().unwrap_or(0);if uid<=0||uid!=cid||user["is_bot"]==true{return;}
@@ -368,7 +366,7 @@ impl App {
         let payment_result=if let Ok(mut db)=self.db.lock(){let result=(||->rusqlite::Result<i64>{db.execute_batch("BEGIN IMMEDIATE")?;let inserted=db.execute("INSERT OR IGNORE INTO gift_payments(gift_key,user_id,gift_id,stars,created_at) VALUES(?1,?2,?3,?4,?5)",params![key,uid,info["id"].as_str().unwrap_or(""),stars,now_iso()])?;if inserted==0{db.execute_batch("ROLLBACK")?;return Ok(0);}if !already{db.execute("INSERT OR REPLACE INTO premium_users(user_id,activated_at,activated_by) VALUES(?1,?2,0)",params![uid,now_iso()])?;}db.execute_batch("COMMIT")?;Ok(inserted as i64)})();match result{Ok(v)=>Ok(v),Err(e)=>{let _=db.execute_batch("ROLLBACK");Err(e.to_string())}}}else{Err("database lock unavailable".into())};
         match payment_result{Ok(0)=>return,Ok(_)=>{},Err(e)=>{log_line("ERROR",&format!("gift premium transaction failed for {uid}: {e}"));self.send_raw(cid,&format!("❌ Не удалось включить Premium автоматически.\nНапиши {PREMIUM_CONTACT} — всё поправим."),None,conn);self.send(ADMIN_ID,&format!("⚠️ Ошибка выдачи Premium за подарок\n🆔 {uid}\nВыдай Premium вручную: Админ-панель → 👑 Выдать Premium."),None);return;}}
         self.save_user(user);
-        if already{self.send_raw(cid,"👑 Спасибо за подарок! У тебя Premium уже был активен.",None,conn);}else{self.send_raw(cid,"👑 Спасибо за подарок! PREMIUM UNLIMITED активирован.\n\n♾ Username без ограничений.\n♾ Запросы без ограничений.",None,conn);self.send(uid,&format!("👑 PREMIUM UNLIMITED активирован за подарок {PREMIUM_GIFT_EMOJI}!"),None);}
+        if already{self.send_raw(cid,"👑 Спасибо за подарок! У тебя Premium уже был активен.",None,conn);}else{self.send_raw(cid,"👑 Спасибо за подарок! PREMIUM UNLIMITED активирован.\n\n♾ Username без ограничений.\n♾ Запросы без ограничений.",None,conn);}
         self.send(ADMIN_ID,&format!("🧸 ПОДАРОК ПОЛУЧЕН\n━━━━━━━━━━━━━━━━━━\n🆔 {uid}\n👤 {}\n🔗 @{}\n⭐ Стоимость: {stars}\n👑 Premium: {}\n🕒 {}",user["first_name"].as_str().unwrap_or("Без имени"),user["username"].as_str().unwrap_or("нет"),if already{"уже был"}else{"выдан"},now_iso()),None);
     }
     fn save_action(&self,user:&Value,action:&str){log_line("INFO",&format!("ID={} | Имя={} | Username=@{} | Действие={}",user["id"],user["first_name"].as_str().unwrap_or(""),user["username"].as_str().unwrap_or("нет"),action));}
