@@ -1,9 +1,10 @@
 use async_trait::async_trait;
 use reqwest::blocking::Client;
 use std::time::Duration;
+
 use crate::generator::{AvailabilityChecker, Status};
 
-/// Checks public Telegram web pages only. It never logs into a Telegram account.
+/// Public-page checker: no Telegram account, MTProto session, phone, or login code.
 pub struct PublicTelegramChecker {
     client: Client,
 }
@@ -24,8 +25,7 @@ impl PublicTelegramChecker {
         if name.len() != 5 || !name.bytes().all(|b| b.is_ascii_lowercase()) {
             return Status::Unknown;
         }
-        let url = format!("https://t.me/{name}");
-        let response = match self.client.get(url).send() {
+        let response = match self.client.get(format!("https://t.me/{name}")).send() {
             Ok(response) => response,
             Err(_) => return Status::Unknown,
         };
@@ -37,37 +37,30 @@ impl PublicTelegramChecker {
             Err(_) => return Status::Unknown,
         };
         let lower = page.to_ascii_lowercase();
-
-        // An actual profile/contact page is evidence that the name is occupied.
         if lower.contains("tgme_page_extra") || lower.contains("tgme_page_photo") {
             return Status::Taken;
         }
 
-        // A public t.me page for an unassigned name exposes this exact OG title.
         let expected = format!("telegram: contact @{name}");
-        if let Some(title) = extract_og_title(&page) {
-            if title.trim().eq_ignore_ascii_case(&expected) {
-                return Status::Free;
-            }
-            if title.to_ascii_lowercase().starts_with("telegram: contact @") {
-                return Status::Unknown;
-            }
-            if !title.trim().is_empty() {
-                return Status::Taken;
-            }
+        match extract_og_title(&page) {
+            Some(title) if title.trim().eq_ignore_ascii_case(&expected) => Status::Free,
+            Some(title) if title.to_ascii_lowercase().starts_with("telegram: contact @") => Status::Unknown,
+            Some(title) if !title.trim().is_empty() => Status::Taken,
+            _ => Status::Unknown,
         }
-        Status::Unknown
     }
 }
 
 fn extract_og_title(page: &str) -> Option<String> {
-    let tags = regex::Regex::new(r#"(?is)<meta\\b[^>]*>"#).ok()?;
+    let tags = regex::Regex::new(r#"(?is)<meta\b[^>]*>"#).ok()?;
+    let content = regex::Regex::new(r#"(?i)content\s*=\s*["']([^"']*)["']"#).ok()?;
     for tag in tags.find_iter(page).map(|m| m.as_str()) {
-        let tag_lower = tag.to_ascii_lowercase();
-        if !tag_lower.contains("property="og:title"") && !tag_lower.contains("property='og:title'") {
+        let lower = tag.to_ascii_lowercase();
+        if !lower.contains(r#"property="og:title""#)
+            && !lower.contains("property='og:title'")
+        {
             continue;
         }
-        let content = regex::Regex::new(r#"(?i)content\\s*=\\s*["']([^"']*)["']"#).ok()?;
         if let Some(capture) = content.captures(tag) {
             return capture.get(1).map(|m| m.as_str().to_string());
         }
@@ -78,12 +71,10 @@ fn extract_og_title(page: &str) -> Option<String> {
 #[async_trait]
 impl AvailabilityChecker for PublicTelegramChecker {
     async fn check(&self, name: &str) -> Status {
-        // reqwest's blocking client is isolated from the async executor.
         let client = self.client.clone();
         let name = name.to_string();
         match tokio::task::spawn_blocking(move || {
-            let checker = PublicTelegramChecker { client };
-            checker.check_public_page(&name)
+            PublicTelegramChecker { client }.check_public_page(&name)
         }).await {
             Ok(status) => status,
             Err(_) => Status::Unknown,
