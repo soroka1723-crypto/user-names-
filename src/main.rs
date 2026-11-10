@@ -2,7 +2,7 @@ mod generator;
 mod telegram_checker;
 
 use generator::{Generator, GeneratorStore};
-use telegram_checker::TelegramMtprotoChecker;
+use telegram_checker::PublicTelegramChecker;
 
 use chrono::Local;
 use rayon::prelude::*;
@@ -114,20 +114,11 @@ impl App {
             .worker_threads(2)
             .enable_all()
             .build()?;
-        let generator = match runtime.block_on(TelegramMtprotoChecker::connect_from_env()) {
-            Ok(Some(checker)) => {
-                let store = Arc::new(GeneratorStore::open("username_data.db")?);
-                Some(Generator::new(store, Arc::new(checker), 3))
-            }
-            Ok(None) => {
-                eprintln!("MTProto username checker is not configured; generation will remain disabled until a user session is added.");
-                None
-            }
-            Err(error) => {
-                eprintln!("MTProto username checker unavailable: {error}");
-                None
-            }
-        };
+        // Public Telegram page checker: no user-account login, MTProto session,
+        // phone number, or verification code is required.
+        let checker = PublicTelegramChecker::new()?;
+        let store = Arc::new(GeneratorStore::open("username_data.db")?);
+        let generator = Some(Generator::new(store, Arc::new(checker), 3));
         Ok(Self {
             token,
             password,
@@ -429,12 +420,12 @@ impl App {
         match text {
             "🎲 Генерировать" => match self.generate(id) {
                 Ok(names) => {
-                    let body = format!("🎲 ГОТОВО!\n\n{}\n\nПроверка: каждый вариант подтверждён Telegram MTProto.",
+                    let body = format!("🎲 ГОТОВО!\n\n{}\n\nПроверка: каждый вариант дважды проверен по публичным страницам Telegram.",
                         names.iter().map(|n|format!("✅ @{n} — свободен")).collect::<Vec<_>>().join("\n"));
                     self.send(chat,&body,Some(&[&["🎲 Генерировать"],&["📊 Мой лимит"],&["👑 Купить Premium"],&["💬 Поддержка"]]));
                 }
                 Err(e) if e=="limit" => { self.send(chat,&format!("⛔ Дневной лимит исчерпан.\n\n👑 Premium: {PREMIUM_CONTACT}"),None); }
-                Err(e) if e=="mtproto" => { self.send(chat,"⚠️ Проверка Telegram MTProto не настроена. Нужна авторизованная пользовательская сессия Telegram.",None); }
+                
                 Err(_) => { self.send(chat,"😕 Сейчас не удалось найти свободные варианты. Попробуй ещё раз чуть позже. Лимит не списан.",None); }
             },
             "📊 Мой лимит" => { let body=self.limit_text(id); self.send(chat,&body,None); }
