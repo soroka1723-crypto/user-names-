@@ -1,83 +1,76 @@
 use async_trait::async_trait;
-use reqwest::blocking::Client;
-use std::time::Duration;
+use regex::Regex;
+use reqwest::Client;
+use std::{sync::OnceLock, time::Duration};
+use tracing::{debug, warn};
 
 use crate::generator::{AvailabilityChecker, Status};
 
-/// Public-page checker: no Telegram account, MTProto session, phone, or login code.
-pub struct PublicTelegramChecker {
-    client: Client,
-}
+pub struct PublicTelegramChecker { client: Client }
 
 impl PublicTelegramChecker {
     pub fn new() -> Result<Self, String> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(4))
-            .timeout(Duration::from_secs(8))
-            .user_agent("Mozilla/5.0 (compatible; UsernameAvailabilityBot/1.0)")
+            .timeout(Duration::from_secs(7))
             .pool_max_idle_per_host(8)
-            .build()
-            .map_err(|e| format!("create public Telegram checker: {e}"))?;
+            .user_agent("Mozilla/5.0 (compatible; UsernameAvailabilityChecker/1.0)")
+            .build().map_err(|e| format!("HTTP client: {e}"))?;
         Ok(Self { client })
     }
 
-    fn check_public_page(&self, name: &str) -> Status {
-        if name.len() != 5 || !name.bytes().all(|b| b.is_ascii_lowercase()) {
-            return Status::Unknown;
-        }
-        let response = match self.client.get(format!("https://t.me/{name}")).send() {
-            Ok(response) => response,
-            Err(_) => return Status::Unknown,
+    async fn telegram_once(&self, name: &str) -> Status {
+        let response = match self.client.get(format!("https://t.me/{name}")).send().await {
+            Ok(r) if r.status().is_success() => r,
+            Ok(r) => { debug!(%name, status = %r.status(), "Telegram public page inconclusive"); return Status::Unknown; }
+            Err(e) => { warn!(%name, error = %e, "Telegram public page request failed"); return Status::Unknown; }
         };
-        if !response.status().is_success() {
-            return Status::Unknown;
-        }
-        let page = match response.text() {
-            Ok(page) => page,
-            Err(_) => return Status::Unknown,
+        let page = match response.text().await {
+            Ok(v) => v,
+            Err(e) => { warn!(%name, error = %e, "Telegram public page body failed"); return Status::Unknown; }
         };
-        let lower = page.to_ascii_lowercase();
-        if lower.contains("tgme_page_extra") || lower.contains("tgme_page_photo") {
-            return Status::Taken;
+        static META: OnceLock<Regex> = OnceLock::new();
+        static OG: OnceLock<Regex> = OnceLock::new();
+        static CONTENT: OnceLock<Regex> = OnceLock::new();
+        let meta = META.get_or_init(|| Regex::new(r#"(?is)<meta\b[^>]*>"#).expect("static regex"));
+        let og = OG.get_or_init(|| Regex::new(r#"(?i)property\s*=\s*["']og:title["']"#).expect("static regex"));
+        let content = CONTENT.get_or_init(|| Regex::new(r#"(?i)content\s*=\s*["']([^"']*)["']"#).expect("static regex"));
+        for tag in meta.find_iter(&page) {
+            if og.is_match(tag.as_str()) {
+                if let Some(capture) = content.captures(tag.as_str()) {
+                    let title = capture.get(1).map(|m| m.as_str()).unwrap_or("").trim().to_ascii_lowercase();
+                    if title == format!("telegram: contact @{name}") { return Status::Free; }
+                    if title.starts_with("telegram: contact @") || title.is_empty() { return Status::Unknown; }
+                    return Status::Taken;
+                }
+            }
         }
-
-        let expected = format!("telegram: contact @{name}");
-        match extract_og_title(&page) {
-            Some(title) if title.trim().eq_ignore_ascii_case(&expected) => Status::Free,
-            Some(title) if title.to_ascii_lowercase().starts_with("telegram: contact @") => Status::Unknown,
-            Some(title) if !title.trim().is_empty() => Status::Taken,
-            _ => Status::Unknown,
-        }
+        Status::Unknown
     }
-}
 
-fn extract_og_title(page: &str) -> Option<String> {
-    let tags = regex::Regex::new(r#"(?is)<meta\b[^>]*>"#).ok()?;
-    let content = regex::Regex::new(r#"(?i)content\s*=\s*["']([^"']*)["']"#).ok()?;
-    for tag in tags.find_iter(page).map(|m| m.as_str()) {
-        let lower = tag.to_ascii_lowercase();
-        if !lower.contains(r#"property="og:title""#)
-            && !lower.contains("property='og:title'")
-        {
-            continue;
-        }
-        if let Some(capture) = content.captures(tag) {
-            return capture.get(1).map(|m| m.as_str().to_string());
-        }
+    async fn fragment_excludes(&self, name: &str) -> bool {
+        let response = match self.client.get(format!("https://fragment.com/username/{name}")).send().await {
+            Ok(r) if r.status().is_success() => r,
+            _ => return false,
+        };
+        let page = match response.text().await { Ok(v) => v, Err(_) => return false };
+        static STATUS: OnceLock<Regex> = OnceLock::new();
+        let re = STATUS.get_or_init(|| Regex::new(r#"class=["'][^"']*tm-section-header-status[^"']*tm-status-(\w+)"#).expect("static regex"));
+        re.captures(&page).and_then(|c| c.get(1))
+            .map(|m| matches!(m.as_str(), "avail" | "auction" | "sold")).unwrap_or(false)
     }
-    None
 }
 
 #[async_trait]
 impl AvailabilityChecker for PublicTelegramChecker {
     async fn check(&self, name: &str) -> Status {
-        let client = self.client.clone();
-        let name = name.to_string();
-        match tokio::task::spawn_blocking(move || {
-            PublicTelegramChecker { client }.check_public_page(&name)
-        }).await {
-            Ok(status) => status,
-            Err(_) => Status::Unknown,
-        }
+        if name.len() != 5 || !name.bytes().all(|b| b.is_ascii_lowercase()) { return Status::Unknown; }
+        let first = self.telegram_once(name).await;
+        if first != Status::Free { return first; }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let second = self.telegram_once(name).await;
+        if second != Status::Free { return second; }
+        if self.fragment_excludes(name).await { return Status::Taken; }
+        Status::Free
     }
 }
