@@ -1,5 +1,8 @@
 name: Run Rust Telegram bot
 on:
+  push:
+    branches:
+      - main
   schedule:
     # Moscow time (UTC+3): 10:00-15:00 and 15:20-20:20.
     - cron: '0 7 * * *'
@@ -40,6 +43,7 @@ jobs:
       - name: Build
         run: cargo build --release
       - name: Run bot for one session
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.event.head_commit.message == 'Start one-hour bot test')
         shell: bash
         run: |
           set +e
@@ -47,7 +51,9 @@ jobs:
           now=$(date +%s)
           today=$(date +%F)
           clock=$(date +%H%M)
-          if [[ "$clock" -ge 1000 && "$clock" -lt 1500 ]]; then
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            end=$((now + 3600))
+          elif [[ "$clock" -ge 1000 && "$clock" -lt 1500 ]]; then
             end=$(date -d "$today 15:00:00" +%s)
           elif [[ "$clock" -ge 1520 && "$clock" -lt 2020 ]]; then
             end=$(date -d "$today 20:20:00" +%s)
