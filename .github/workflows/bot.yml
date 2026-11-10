@@ -1,5 +1,9 @@
 name: Run Rust Telegram bot
 on:
+  push:
+    branches:
+      - '**'
+  pull_request:
   schedule:
     # Moscow time (UTC+3): 12:00 and 17:00, two consecutive ~5-hour sessions.
     - cron: '0 9 * * *'
