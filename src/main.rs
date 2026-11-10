@@ -1,5 +1,4 @@
 use chrono::Local;
-use rand::seq::SliceRandom;
 use rayon::prelude::*;
 use reqwest::blocking::Client;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -195,7 +194,7 @@ impl App {
     }
 
     fn check_name(&self, name: &str) -> &'static str {
-        if !word_ok(name) { return "invalid"; }
+        if name.len() != 5 || !name.bytes().all(|b| b.is_ascii_lowercase()) { return "invalid"; }
         if self.check_tme_once(name) != "free" { return "unknown_or_taken"; }
         thread::sleep(Duration::from_millis(500));
         if self.check_tme_once(name) != "free" { return "unknown_or_taken"; }
