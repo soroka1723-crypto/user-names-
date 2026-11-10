@@ -66,19 +66,19 @@ fn generate_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
         } else if pattern < 0.85 {
             format!(
                 "{}{}{}{}{}",
-                pick(WORD_ONSETS, rng),
-                pick(WORD_VOWELS, rng),
-                pick(WORD_MIDDLE, rng),
-                pick(WORD_VOWELS, rng),
+                pick_part(WORD_ONSETS, rng),
+                pick_part(WORD_VOWELS, rng),
+                pick_part(WORD_MIDDLE, rng),
+                pick_part(WORD_VOWELS, rng),
                 pick_part(WORD_FINAL_CONSONANTS, rng)
             )
         } else {
             format!(
                 "{}{}{}{}",
-                pick(WORD_ONSETS, rng),
-                pick(WORD_VOWELS, rng),
-                pick(WORD_ONSETS, rng),
-                pick(WORD_ENDINGS, rng)
+                pick_part(WORD_ONSETS, rng),
+                pick_part(WORD_VOWELS, rng),
+                pick_part(WORD_ONSETS, rng),
+                pick_part(WORD_ENDINGS, rng)
             )
         };
         if word_ok(&candidate) {
