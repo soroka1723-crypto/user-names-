@@ -314,7 +314,7 @@ impl App {
 }
 
 const MAIN_MENU:&[&[&str]]=&[&["🎲 Генерировать"],&["📊 Мой лимит"],&["👑 Купить Premium"],&["💬 Поддержка"]];
-const ADMIN_MENU:&[&[&str]]=&[&["👑 Выдать Premium","❌ Снять Premium"],&["🎁 Подарить запросы","➖ Отнять запросы"],&["🚫 Заблокировать","🔓 Разблокировать"],&["✉️ Написать пользователю"],&["⬅️ Назад"]];
+const ADMIN_MENU:&[&[&str]]=&[&["👑 Выдать Premium","❌ Снять Premium"],&["🎁 Подарить запросы","➖ Отнять запросы"],&["🚫 Заблокировать","🔓 Разблокировать"],&["✉️ Написать от имени бота"],&["⬅️ Назад"]];
 const MODE_MENU:&[&[&str]]=&[&["💎 Редкие слова"],&["🔤 Только буквы"],&["🔢 Буквы + цифры"],&["⬅️ Назад"]];
 const SUB_MENU:&[&[&str]]=&[&["📢 Подписаться"],&["🔄 Проверить подписку"]];
 fn keyboard(rows:&[&[&str]])->Vec<Vec<String>>{rows.iter().map(|r|r.iter().map(|s|s.to_string()).collect()).collect()}
@@ -497,7 +497,7 @@ impl App {
         "🚷 Игнор-лист"=>{let rows=self.db.lock().ok().and_then(|db|db.prepare("SELECT user_id,added_at,reason FROM ignore_list ORDER BY added_at DESC LIMIT 100").and_then(|mut st|st.query_map([],|r|Ok((r.get::<_,i64>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?))).and_then(|x|x.collect::<rusqlite::Result<Vec<_>>>())).ok()).unwrap_or_default();let body=if rows.is_empty(){"🚷 ИГНОР-ЛИСТ ПУСТ.".into()}else{format!("🚷 ИГНОР-ЛИСТ\n━━━━━━━━━━━━━━━━━━\n{}",rows.iter().map(|(u,d,r)|format!("ID: {u}\nПричина: {}\nДобавлен: {d}",if r.is_empty(){"Не указана"}else{r})).collect::<Vec<_>>().join("\n\n"))};self.send(chat,&body,Some(kb));},
         "➕ В игнор"=>{s.step=Some("ignore_add".into());self.send(chat,"Введи Telegram ID:",None);},"➖ Из игнора"=>{s.step=Some("ignore_remove".into());self.send(chat,"Введи Telegram ID:",None);},
         "👑 Выдать Premium"=>{s.step=Some("premium_on".into());self.send(chat,"Введи Telegram ID:",None);},"❌ Снять Premium"=>{s.step=Some("premium_off".into());self.send(chat,"Введи Telegram ID:",None);},
-        "✉️ Написать пользователю"=>{s.step=Some("message_user_id".into());self.send(chat,"Введи Telegram ID:",None);},"📢 Массовая рассылка"=>{s.step=Some("broadcast_text".into());self.send(chat,"Введи текст рассылки:",None);},
+        "✉️ Написать от имени бота"=>{s.step=Some("message_user_id".into());self.send(chat,"Введи Telegram ID:",None);},"📢 Массовая рассылка"=>{s.step=Some("broadcast_text".into());self.send(chat,"Введи текст рассылки:",None);},
         "💾 Резервная копия"=>{self.send(chat,"⏳ Создаю резервную копию...",None);match self.create_backup(){Ok((path,size))=>{self.send(chat,&format!("✅ РЕЗЕРВНАЯ КОПИЯ СОЗДАНА\n━━━━━━━━━━━━━━━━━━\n📁 Файл: {path}\n📦 Размер: {} КБ\n🕒 Время: {}\n\nОсновная база не изменена.",(size/1024).max(1),now_iso()),Some(kb));self.action_log(user,"BACKUP CREATED");},Err(e)=>{log_line("ERROR",&format!("backup failed: {e}"));self.send(chat,"❌ Не удалось создать резервную копию. Подробности записаны в лог.",Some(kb));}}},
         "🛠 Права 2-го админа"=>{s.step=Some("perm_toggle".into());self.admin_step(user,chat,"",s);},
         "➕ Назначить второго администратора"=>{s.step=Some("admin2_add".into());self.send(chat,"Введи Telegram ID второго администратора:",None);},
