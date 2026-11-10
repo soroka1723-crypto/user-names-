@@ -189,7 +189,7 @@ impl App {
         };
         let page = match response.text() { Ok(v) => v, Err(_) => return false };
         static STATUS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        let re = STATUS.get_or_init(|| regex::Regex::new(r#"class="[^"]*tm-section-header-status[^"]*tm-status-(\w+)""#).expect("valid Fragment regex"));
+        let re = STATUS.get_or_init(|| regex::Regex::new(r#"class="[^"]*tm-section-header-status[^"]*tm-status-(\w+)"#).expect("valid Fragment regex"));
         re.captures(&page).and_then(|c|c.get(1))
             .map(|m|matches!(m.as_str(),"avail"|"auction"|"sold")).unwrap_or(false)
     }
