@@ -291,11 +291,7 @@ impl Generator {
         }
         if roll < 57 && !self.words4.is_empty() {
             if let Some(w) = self.words4.iter().collect::<Vec<_>>().choose(&mut rng) {
-                let suffix = if rng.gen_range(0..10) == 0 {
-                    char::from(b'0' + rng.gen_range(0..10))
-                } else {
-                    ALPHABET[rng.gen_range(0..ALPHABET.len())] as char
-                };
+                let suffix = ALPHABET[rng.gen_range(0..ALPHABET.len())] as char;
                 return format!("{w}{suffix}");
             }
         }
@@ -334,7 +330,7 @@ pub fn validate_username(name: &str) -> bool {
     if !bytes[0].is_ascii_lowercase() {
         return false;
     }
-    if !bytes.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()) {
+    if !bytes.iter().all(|b| b.is_ascii_lowercase()) {
         return false;
     }
     if bytes.iter().all(|b| *b == bytes[0]) {
@@ -439,7 +435,7 @@ mod tests {
     #[test]
     fn accepts_only_five_character_usernames() {
         assert!(validate_username("apple"));
-        assert!(validate_username("a1b2c"));
+        assert!(!validate_username("a1b2c"));
         assert!(!validate_username("abcd"));
         assert!(!validate_username("abcdef"));
         assert!(!validate_username("_bcde"));
@@ -453,7 +449,8 @@ mod tests {
         assert!(!validate_username("aaabc"));
         assert!(!validate_username("qwert"));
         assert!(!validate_username("a1234"));
-        assert!(validate_username("ab1cd"));
+        assert!(!validate_username("ab1cd"));
+
     }
 
     #[test]
