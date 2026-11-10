@@ -20,95 +20,16 @@ const CHECK_TIME_BUDGET_SECS: u64 = 20;
 const CHECK_TIMEOUT_SECS: u64 = 4;
 const PREMIUM_CONTACT: &str = "@xldzo";
 
-// Restored from the previous Python bot generator.
-// Original Python logic: 80% pseudo_word, 10% combo_word, 10% rare word.
-// The requested maximum is now 5 characters (Telegram's minimum is also 5).
-const WORD_ONSETS: &[&str] = &[
-    "b","d","f","g","h","k","l","m","n","p","r","s","t","v","v","z","z","x","j","k","r","v",
-    "br","dr","fr","gr","kr","pr","tr","vr","zl","vl","kl","pl","sl","st","sk","sv","th","sh"
-];
-const WORD_VOWELS: &[&str] = &["a","e","i","o","u","y","a","e","i","o","ae","io"];
-const WORD_MIDDLE: &[&str] = &["l","n","r","s","v","x","z","k","m","th","nd","rn"];
-const WORD_ENDINGS: &[&str] = &[
-    "ix","ex","ox","yx","on","ion","ora","ara","ina","ius","elo","aro","eon","ith",
-    "ar","el","is","um","ia","ya","os","or","en","an","yr","ax","ul","ev"
-];
-const WORD_FINAL_CONSONANTS: &[&str] = &["x","n","r","s","l","m","th","k","z"];
-const THREE_LETTER_WORDS: &[&str] = &[
-    "ash","fox","owl","ice","oak","elm","ivy","ray","fog","jet","gem","ore","orb",
-    "arc","bay","dew","eel","fin","jay","ink","key","lux","mon","nix","ora","pax",
-    "rue","sol","tor","uma","vex","yew","zen","axe","bud","cog","eve"
-];
-const RARE_WORDS: &[&str] = &[
-    "aether","arcane","azure","borealis","cipher","cobalt","crimson","cryptic","ember",
-    "ethereal","fathom","gossamer","halcyon","hollow","idyll","lumen","lucent","mirage",
-    "nebula","nimbus","nocturne","onyx","opaque","oracle","paragon","phantom","quasar",
-    "quill","radiant","reverie","sable","serene","solace","spectral","stellar","sylph",
-    "talisman","tempest","umbra","vellum","vesper","vortex","wraith","zenith","zephyr",
-    "zodiac","abyss","aurora","basalt","cinder","eclipse","elysian","ephemeral","fable",
-    "glacier","harbinger","iridium","kismet","labyrinth","luminous","monolith","mystic",
-    "obsidian","odyssey","pinnacle","relic","saga","specter","sphinx","talon","tundra",
-    "utopia","valkyrie","vertex","vigil","willow","xenon","yonder","zealot"
-];
-const WORD_BLOCKLIST: &[&str] = &[
-    "fuck","shit","cunt","dick","cock","porn","nazi","rape","slut","whore",
-    "nigg","fagg","bitch","piss","tits","penis","vagin"
-];
+// Exact active generator from the latest Python bot (bot(5).py).
+// Python's generate_names() always sets mode = "letters", and generate_one()
+// returns random.choices(string.ascii_lowercase, k=5).
+// The pseudo_word/combo_word/RARE_WORDS helpers are dormant in that runtime path.
+const LETTERS: &[u8; 26] = b"abcdefghijklmnopqrstuvwxyz";
 
-fn word_ok(word: &str) -> bool {
-    word.len() == 5
-        && word.is_ascii()
-        && word.bytes().all(|b| b.is_ascii_lowercase())
-        && word.bytes().any(|b| b"aeiouy".contains(&b))
-        && !WORD_BLOCKLIST.iter().any(|bad| word.contains(bad))
-        && !(0..word.len().saturating_sub(2)).any(|i| {
-            let b = word.as_bytes();
-            b[i] == b[i + 1] && b[i] == b[i + 2]
-        })
-}
-
-fn pick_part<'a, R: rand::Rng + ?Sized>(items: &'a [&'a str], rng: &mut R) -> &'a str {
-    items[rng.gen_range(0..items.len())]
-}
-
-fn pseudo_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
-    let pattern: f64 = rng.gen();
-    if pattern < 0.55 {
-        format!("{}{}{}{}",
-            pick_part(WORD_ONSETS,rng),pick_part(WORD_VOWELS,rng),
-            pick_part(WORD_MIDDLE,rng),pick_part(WORD_ENDINGS,rng))
-    } else if pattern < 0.85 {
-        format!("{}{}{}{}{}",
-            pick_part(WORD_ONSETS,rng),pick_part(WORD_VOWELS,rng),
-            pick_part(WORD_MIDDLE,rng),pick_part(WORD_VOWELS,rng),
-            pick_part(WORD_FINAL_CONSONANTS,rng))
-    } else {
-        format!("{}{}{}{}",
-            pick_part(WORD_ONSETS,rng),pick_part(WORD_VOWELS,rng),
-            pick_part(WORD_ONSETS,rng),pick_part(WORD_ENDINGS,rng))
-    }
-}
-
-fn combo_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
-    let first = rng.gen_range(0..THREE_LETTER_WORDS.len());
-    let mut second = rng.gen_range(0..THREE_LETTER_WORDS.len());
-    while second == first { second = rng.gen_range(0..THREE_LETTER_WORDS.len()); }
-    format!("{}{}",THREE_LETTER_WORDS[first],&THREE_LETTER_WORDS[second][..2])
-}
-
-fn generate_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
-    for _ in 0..200 {
-        let roll: f64 = rng.gen();
-        let candidate = if roll < 0.80 {
-            pseudo_word(rng)
-        } else if roll < 0.90 {
-            combo_word(rng)
-        } else {
-            pick_part(RARE_WORDS,rng).to_string()
-        };
-        if word_ok(&candidate) { return candidate; }
-    }
-    String::new()
+fn generate_one<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
+    (0..5)
+        .map(|_| LETTERS[rng.gen_range(0..LETTERS.len())] as char)
+        .collect()
 }
 
 #[derive(Clone, Default)]
@@ -307,8 +228,8 @@ impl App {
             let mut guard = 0usize;
             while batch.len() < CHECK_THREADS * 2 && guard < 500 {
                 guard += 1;
-                let name = generate_word(&mut rng);
-                if word_ok(&name) && !known.contains(&name) && seen.insert(name.clone()) {
+                let name = generate_one(&mut rng);
+                if !known.contains(&name) && seen.insert(name.clone()) {
                     batch.push(name);
                 }
             }
