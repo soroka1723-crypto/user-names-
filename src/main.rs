@@ -1,5 +1,6 @@
 use chrono::Local;
 use rand::seq::SliceRandom;
+use rand::Rng;
 use rayon::prelude::*;
 use reqwest::blocking::Client;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -20,9 +21,85 @@ const MAX_CHECK_BATCHES: usize = 10;
 const CHECK_TIMEOUT_SECS: u64 = 4;
 const PREMIUM_CONTACT: &str = "@xldzo";
 
-const WORDS: &[&str] = &[
-    "abode", "abort", "abyss", "acorn", "acrid", "acute", "adept", "adorn", "afire", "agate", "agile", "aloft", "amity", "ample", "anise", "apace", "ardor", "aroma", "ashen", "askew", "atlas", "attic", "azure", "basil", "baton", "bevel", "bicep", "bison", "bland", "bleat", "bliss", "blitz", "bogus", "booth", "brash", "brine", "broil", "bulge", "burly", "cairn", "caper", "carat", "carve", "cedar", "chafe", "chasm", "chide", "chirp", "chore", "churn", "cider", "cling", "clink", "clout", "comet", "conch", "copse", "covet", "cramp", "crave", "credo", "creek", "crepe", "crisp", "crypt", "cubic", "curio", "cynic", "daisy", "debit", "debut", "decal", "decoy", "deity", "deter", "digit", "dilly", "dirge", "disco", "ditch", "divot", "dodge", "dowel", "dregs", "druid", "duvet", "ebony", "edict", "elope", "ember", "emote", "ensue", "envoy", "epoxy", "ethos", "evoke", "exalt", "facet", "fable", "faint", "farce", "femur", "ferry", "ficus", "fjord", "flair", "flint", "fluke", "foray", "forge", "forte", "foyer", "frail", "frond", "fudge", "gamut", "giddy", "girth", "gleam", "gloat", "gnome", "gorge", "gourd", "grate", "gravy", "grove", "guava", "gulch", "gusty", "haiku", "haven", "havoc", "helix", "heron", "hinge", "hippo", "hoist", "hokey", "hound", "humus", "hutch", "icily", "inept", "inert", "irate", "irony", "itchy", "jaunt", "jazzy", "jiffy", "juror", "kaput", "kayak", "knack", "knoll", "koala", "lager", "lance", "lanky", "latch", "lathe", "leery", "ledge", "liege", "lilac", "limbo", "lithe", "loamy", "locus", "lurid", "lyric", "magma", "mangy", "manor", "mason", "mealy", "mirth", "mocha", "molar", "mossy", "mural", "nadir", "nanny", "nasal", "navel", "neigh", "niche", "nifty", "nymph", "ochre", "offal", "olden", "ombre", "optic", "otter", "oxide", "pagan", "palsy", "panda", "parer", "parka", "pecan", "penal", "perch", "petal", "pithy", "plaid", "plume", "poise", "prawn", "prism", "privy", "prong", "quail", "quirk", "rabid", "raven", "relic", "remit", "rivet", "rowan", "sable", "salsa", "satin", "scald", "scant", "scone", "scour", "serif", "shale", "shard", "sheen", "shoal", "shrub", "siege", "sieve", "sinew", "skiff", "slang", "slate", "sleek", "sloth", "snare", "snide", "soggy", "spool", "spurn", "squid", "stark", "stoic", "stoke", "stork", "stout", "strut", "stump", "sully", "surge", "swarm", "swath", "swoop", "tacit", "tally", "tango", "taunt", "tepid", "terse", "thrum", "tidal", "tithe", "toxin", "trawl", "truce", "tulip", "tweak", "udder", "ulcer", "umbra", "unzip", "usurp", "vague", "valet", "vapor", "vault", "venom", "verge", "vexed", "vigor", "viper", "visor", "vouch", "waltz", "weary", "whelp", "whisk", "wince", "witty", "wring", "yeast", "yearn", "yokel", "zesty"
+const WORD_ONSETS: &[&str] = &[
+    "b","d","f","g","h","k","l","m","n","p","r","s","t","v","z","x","j",
+    "br","dr","fr","gr","kr","pr","tr","vr","zl","vl","kl","pl","sl","st","sk","sv","th","sh"
 ];
+const WORD_VOWELS: &[&str] = &["a","e","i","o","u","y","ae","io"];
+const WORD_MIDDLE: &[&str] = &["l","n","r","s","v","x","z","k","m","th","nd","rn"];
+const WORD_ENDINGS: &[&str] = &[
+    "ix","ex","ox","yx","on","ion","ora","ara","ina","ius","elo","aro","eon",
+    "ith","ar","el","is","um","ia","ya","os","or","en","an","yr","ax","ul","ev"
+];
+const WORD_FINAL_CONSONANTS: &[&str] = &["x","n","r","s","l","m","th","k","z"];
+const WORD_BLOCKLIST: &[&str] = &[
+    "fuck","shit","cunt","dick","cock","porn","nazi","rape","slut","whore",
+    "nigg","fagg","bitch","piss","tits","penis","vagin"
+];
+
+fn word_ok(word: &str) -> bool {
+    word.len() == 5
+        && word.is_ascii()
+        && word.bytes().all(|b| b.is_ascii_lowercase())
+        && word.bytes().any(|b| b"aeiouy".contains(&b))
+        && !WORD_BLOCKLIST.iter().any(|bad| word.contains(bad))
+        && !(0..word.len().saturating_sub(2)).any(|i| {
+            let b = word.as_bytes();
+            b[i] == b[i + 1] && b[i] == b[i + 2]
+        })
+}
+
+fn generate_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
+    for _ in 0..500 {
+        let pick = |items: &[&str], rng: &mut R| items[rng.gen_range(0..items.len())];
+        let pattern: f64 = rng.gen();
+        let candidate = if pattern < 0.55 {
+            format!(
+                "{}{}{}{}",
+                pick(WORD_ONSETS, rng),
+                pick(WORD_VOWELS, rng),
+                pick(WORD_MIDDLE, rng),
+                pick(WORD_ENDINGS, rng)
+            )
+        } else if pattern < 0.85 {
+            format!(
+                "{}{}{}{}{}",
+                pick(WORD_ONSETS, rng),
+                pick(WORD_VOWELS, rng),
+                pick(WORD_MIDDLE, rng),
+                pick(WORD_VOWELS, rng),
+                pick(WORD_FINAL_CONSONANTS, rng)
+            )
+        } else {
+            format!(
+                "{}{}{}{}",
+                pick(WORD_ONSETS, rng),
+                pick(WORD_VOWELS, rng),
+                pick(WORD_ONSETS, rng),
+                pick(WORD_ENDINGS, rng)
+            )
+        };
+        if word_ok(&candidate) {
+            return candidate;
+        }
+    }
+    "zyrve".to_string()
+}
+
+fn is_simple(name: &str) -> bool {
+    let bytes = name.as_bytes();
+    if bytes.len() != 5 { return true; }
+    let unique = bytes.iter().copied().collect::<std::collections::HashSet<_>>();
+    if unique.len() < 4 { return true; }
+    if unique.iter().any(|c| bytes.iter().filter(|b| *b == c).count() > 2) { return true; }
+    for i in 0..3 {
+        if bytes[i] == bytes[i + 1] { return true; }
+        if bytes[i + 1] == bytes[i] + 1 && bytes[i + 2] == bytes[i + 1] + 1 { return true; }
+        if bytes[i] == bytes[i + 1] + 1 && bytes[i + 1] == bytes[i + 2] + 1 { return true; }
+    }
+    false
+}
+
 
 #[derive(Clone, Default)]
 struct UserState { step: String, target: i64 }
@@ -140,12 +217,11 @@ impl App {
             .optional().ok().flatten().unwrap_or(0)
     }
 
-    // One Telegram page request per candidate. No second pass and no Fragment request.
-    fn check_name(&self, name: &str) -> &'static str {
+    fn check_tme_once(&self, name: &str) -> &'static str {
         let url = format!("https://t.me/{name}");
         let page = match self.client.get(url).timeout(Duration::from_secs(CHECK_TIMEOUT_SECS)).send() {
-            Ok(r) => match r.text() { Ok(v) => v, Err(_) => return "unknown" },
-            Err(_) => return "unknown",
+            Ok(r) if r.status().is_success() => match r.text() { Ok(v) => v, Err(_) => return "unknown" },
+            _ => return "unknown",
         };
         let lower = page.to_ascii_lowercase();
         if lower.contains("tgme_page_extra") || lower.contains("tgme_page_photo") {
@@ -154,7 +230,7 @@ impl App {
         static META_TAG: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         static OG_PROPERTY: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
         static CONTENT: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-        let tags = META_TAG.get_or_init(|| regex::Regex::new(r#"(?is)<meta\b[^>]*>"#).expect("valid meta tag regex"));
+        let tags = META_TAG.get_or_init(|| regex::Regex::new(r#"(?is)<meta\b[^>]*>"#).expect("valid meta regex"));
         let property = OG_PROPERTY.get_or_init(|| regex::Regex::new(r#"(?i)property\s*=\s*["']og:title["']"#).expect("valid property regex"));
         let content = CONTENT.get_or_init(|| regex::Regex::new(r#"(?i)content\s*=\s*["']([^"']*)["']"#).expect("valid content regex"));
         for tag in tags.find_iter(&page) {
@@ -171,6 +247,26 @@ impl App {
         "unknown"
     }
 
+    fn check_fragment(&self, name: &str) -> bool {
+        let url = format!("https://fragment.com/username/{name}");
+        let page = match self.client.get(url).timeout(Duration::from_secs(CHECK_TIMEOUT_SECS)).send() {
+            Ok(r) if r.status().is_success() => match r.text() { Ok(v) => v, Err(_) => return false },
+            _ => return false,
+        };
+        static STATUS: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let re = STATUS.get_or_init(|| regex::Regex::new(r#"class="[^"]*tm-section-header-status[^"]*tm-status-(\w+)"#).expect("valid Fragment regex"));
+        re.captures(&page).and_then(|c|c.get(1)).map(|m|matches!(m.as_str(),"avail"|"auction"|"sold")).unwrap_or(false)
+    }
+
+    fn check_name(&self, name: &str) -> &'static str {
+        if !word_ok(name) { return "invalid"; }
+        if self.check_tme_once(name) != "free" { return "unknown_or_taken"; }
+        thread::sleep(Duration::from_millis(450));
+        if self.check_tme_once(name) != "free" { return "unknown_or_taken"; }
+        if self.check_fragment(name) { return "taken"; }
+        "free"
+    }
+
     fn generate(&self, id: i64) -> Result<Vec<String>, String> {
         let premium = self.premium(id);
         let used = self.request_count(id);
@@ -179,16 +275,22 @@ impl App {
             return Err("limit".into());
         }
 
-        let mut candidates = WORDS.iter().map(|s|s.to_string()).collect::<Vec<_>>();
-        candidates.shuffle(&mut rand::thread_rng());
         let known = {
             let db = self.db.lock().unwrap();
             let mut stmt = db.prepare("SELECT name FROM generated").map_err(|_|"db")?;
             let rows = stmt.query_map([],|r|r.get::<_,String>(0)).map_err(|_|"db")?;
-            let values = rows.collect::<rusqlite::Result<std::collections::HashSet<_>>>().map_err(|_|"db")?;
-            values
+            rows.collect::<rusqlite::Result<std::collections::HashSet<_>>>().map_err(|_|"db")?
         };
-        candidates.retain(|n| n.len()==5 && n.bytes().all(|b|b.is_ascii_lowercase()) && !known.contains(n));
+        let mut rng = rand::thread_rng();
+        let mut candidates = std::collections::HashSet::new();
+        for _ in 0..600 {
+            let name = generate_word(&mut rng);
+            if word_ok(&name) && !is_simple(&name) && !known.contains(&name) {
+                candidates.insert(name);
+            }
+        }
+        let mut candidates = candidates.into_iter().collect::<Vec<_>>();
+        candidates.shuffle(&mut rng);
         let mut free = Vec::new();
         // Work in small parallel batches; stop as soon as 3 free names are found.
         for batch in candidates.chunks(CHECK_THREADS).take(MAX_CHECK_BATCHES) {
