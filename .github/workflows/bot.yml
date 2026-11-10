@@ -10,7 +10,7 @@ on:
     - cron: '20 12 * * *'
   workflow_dispatch:
 concurrency:
-  group: username-generator-bot
+  group: username-generator-${{ github.event_name == 'push' && 'checks' || 'runtime' }}
   cancel-in-progress: false
 permissions:
   contents: read
