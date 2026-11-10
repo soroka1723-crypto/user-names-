@@ -49,7 +49,7 @@ fn is_simple(name: &str) -> bool {
             return true;
         }
     }
-    ["aaa", "bbb", "ccc"].iter().any(|p| name.contains(p))
+    ["aaa", "bbb", "ccc"].iter().any(|p| name.contains(*p))
 }
 
 fn generate_one<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
