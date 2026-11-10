@@ -14,15 +14,41 @@ use std::{
 
 const ADMIN_ID: i64 = 7502792642;
 const DAILY_REQUEST_LIMIT: i64 = 20;
-const NAMES_PER_REQUEST: usize = 3;
+const NAMES_PER_REQUEST: usize = 5;
 const CHECK_THREADS: usize = 12;
 const MAX_CHECK_BATCHES: usize = 10;
 const CHECK_TIMEOUT_SECS: u64 = 4;
 const PREMIUM_CONTACT: &str = "@xldzo";
 
-// Curated, recognizable English words only. No syllable-based pseudo-words.
-const COMMON_WORDS: &[&str] = &[
-    "about","above","abuse","actor","acute","admit","adopt","adult","after","again","agent","agree","ahead","alarm","album","alert","alike","alive","allow","alone","along","alter","among","angel","anger","angle","angry","ankle","apart","apple","apply","arena","argue","arise","armed","armor","aroma","arrow","aside","asset","audio","audit","avoid","awake","award","aware","awful","beach","begin","being","below","bench","berry","birth","black","blame","blind","block","blood","board","brain","brand","bread","break","brick","bride","brief","bring","broad","brown","build","built","buyer","cable","camel","candy","carry","catch","cause","chain","chair","charm","chart","chase","cheap","check","chest","chief","child","china","civil","claim","class","clean","clear","clock","close","cloud","coach","coast","color","could","count","court","cover","craft","crash","cream","crime","cross","crowd","crown","curve","daily","dance","death","delay","depth","dirty","doubt","dozen","draft","drama","dream","dress","drink","drive","earth","eight","elite","empty","enemy","enjoy","enter","entry","equal","error","event","every","exact","exist","extra","faith","false","fault","field","fifth","fifty","fight","final","first","flame","flash","floor","focus","force","forth","forty","found","frame","frank","fresh","front","fruit","funny","giant","given","glass","globe","going","grace","grade","grand","grant","grass","great","green","greet","group","guard","guess","guest","guide","habit","happy","heart","heavy","hello","hence","honey","horse","hotel","house","human","ideal","image","imply","index","inner","input","issue","joint","judge","known","label","labor","large","laser","later","laugh","layer","learn","least","leave","legal","level","light","limit","local","logic","loose","lower","lucky","lunch","magic","major","maker","march","match","maybe","mayor","meant","media","metal","might","minor","minus","model","money","month","moral","motor","mount","mouse","mouth","movie","music","needs","never","night","noise","north","noted","novel","nurse","occur","ocean","offer","often","order","other","ought","outer","owner","paint","panel","paper","party","peace","phase","phone","photo","piece","pilot","pitch","place","plain","plane","plant","plate","point","pound","power","press","price","pride","prime","print","prior","prize","proof","proud","prove","queen","quick","quiet","quite","radio","raise","range","rapid","ratio","reach","ready","refer","right","river","roast","rough","round","route","royal","rural","scale","scene","scope","score","sense","serve","seven","shall","shape","share","sharp","sheet","shelf","shell","shift","shine","shirt","shock","shoot","short","shown","sight","since","skill","sleep","slice","small","smart","smile","smoke","solid","solve","sorry","sound","south","space","spare","speak","speed","spend","spent","split","sport","staff","stage","stake","stand","start","state","steam","steel","stick","still","stock","stone","stood","store","storm","story","strip","study","style","sugar","suite","super","sweet","table","taken","taste","teach","teeth","thank","their","theme","there","these","thick","thing","think","third","those","three","threw","tight","tired","title","today","topic","total","touch","tough","tower","track","trade","train","treat","trend","trial","tried","truck","truly","trust","truth","twice","under","union","unity","until","upper","urban","usage","usual","valid","value","video","visit","vital","voice","waste","watch","water","wheel","where","which","while","white","whole","whose","woman","women","world","worry","worse","worst","worth","would","write","wrong","wrote","youth"
+// Restored from the previous Python bot generator.
+// Original Python logic: 80% pseudo_word, 10% combo_word, 10% rare word.
+// The requested maximum is now 5 characters (Telegram's minimum is also 5).
+const WORD_ONSETS: &[&str] = &[
+    "b","d","f","g","h","k","l","m","n","p","r","s","t","v","v","z","z","x","j","k","r","v",
+    "br","dr","fr","gr","kr","pr","tr","vr","zl","vl","kl","pl","sl","st","sk","sv","th","sh"
+];
+const WORD_VOWELS: &[&str] = &["a","e","i","o","u","y","a","e","i","o","ae","io"];
+const WORD_MIDDLE: &[&str] = &["l","n","r","s","v","x","z","k","m","th","nd","rn"];
+const WORD_ENDINGS: &[&str] = &[
+    "ix","ex","ox","yx","on","ion","ora","ara","ina","ius","elo","aro","eon","ith",
+    "ar","el","is","um","ia","ya","os","or","en","an","yr","ax","ul","ev"
+];
+const WORD_FINAL_CONSONANTS: &[&str] = &["x","n","r","s","l","m","th","k","z"];
+const THREE_LETTER_WORDS: &[&str] = &[
+    "ash","fox","owl","ice","oak","elm","ivy","ray","fog","jet","gem","ore","orb",
+    "arc","bay","dew","eel","fin","jay","ink","key","lux","mon","nix","ora","pax",
+    "rue","sol","tor","uma","vex","yew","zen","axe","bud","cog","eve"
+];
+const RARE_WORDS: &[&str] = &[
+    "aether","arcane","azure","borealis","cipher","cobalt","crimson","cryptic","ember",
+    "ethereal","fathom","gossamer","halcyon","hollow","idyll","lumen","lucent","mirage",
+    "nebula","nimbus","nocturne","onyx","opaque","oracle","paragon","phantom","quasar",
+    "quill","radiant","reverie","sable","serene","solace","spectral","stellar","sylph",
+    "talisman","tempest","umbra","vellum","vesper","vortex","wraith","zenith","zephyr",
+    "zodiac","abyss","aurora","basalt","cinder","eclipse","elysian","ephemeral","fable",
+    "glacier","harbinger","iridium","kismet","labyrinth","luminous","monolith","mystic",
+    "obsidian","odyssey","pinnacle","relic","saga","specter","sphinx","talon","tundra",
+    "utopia","valkyrie","vertex","vigil","willow","xenon","yonder","zealot"
 ];
 const WORD_BLOCKLIST: &[&str] = &[
     "fuck","shit","cunt","dick","cock","porn","nazi","rape","slut","whore",
@@ -33,11 +59,56 @@ fn word_ok(word: &str) -> bool {
     word.len() == 5
         && word.is_ascii()
         && word.bytes().all(|b| b.is_ascii_lowercase())
+        && word.bytes().any(|b| b"aeiouy".contains(&b))
         && !WORD_BLOCKLIST.iter().any(|bad| word.contains(bad))
+        && !(0..word.len().saturating_sub(2)).any(|i| {
+            let b = word.as_bytes();
+            b[i] == b[i + 1] && b[i] == b[i + 2]
+        })
+}
+
+fn pick_part<'a, R: rand::Rng + ?Sized>(items: &'a [&'a str], rng: &mut R) -> &'a str {
+    items[rng.gen_range(0..items.len())]
+}
+
+fn pseudo_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
+    let pattern: f64 = rng.gen();
+    if pattern < 0.55 {
+        format!("{}{}{}{}",
+            pick_part(WORD_ONSETS,rng),pick_part(WORD_VOWELS,rng),
+            pick_part(WORD_MIDDLE,rng),pick_part(WORD_ENDINGS,rng))
+    } else if pattern < 0.85 {
+        format!("{}{}{}{}{}",
+            pick_part(WORD_ONSETS,rng),pick_part(WORD_VOWELS,rng),
+            pick_part(WORD_MIDDLE,rng),pick_part(WORD_VOWELS,rng),
+            pick_part(WORD_FINAL_CONSONANTS,rng))
+    } else {
+        format!("{}{}{}{}",
+            pick_part(WORD_ONSETS,rng),pick_part(WORD_VOWELS,rng),
+            pick_part(WORD_ONSETS,rng),pick_part(WORD_ENDINGS,rng))
+    }
+}
+
+fn combo_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
+    let first = rng.gen_range(0..THREE_LETTER_WORDS.len());
+    let mut second = rng.gen_range(0..THREE_LETTER_WORDS.len());
+    while second == first { second = rng.gen_range(0..THREE_LETTER_WORDS.len()); }
+    format!("{}{}",THREE_LETTER_WORDS[first],THREE_LETTER_WORDS[second])
 }
 
 fn generate_word<R: rand::Rng + ?Sized>(rng: &mut R) -> String {
-    COMMON_WORDS.choose(rng).copied().unwrap_or("apple").to_string()
+    for _ in 0..200 {
+        let roll: f64 = rng.gen();
+        let candidate = if roll < 0.80 {
+            pseudo_word(rng)
+        } else if roll < 0.90 {
+            combo_word(rng)
+        } else {
+            pick_part(RARE_WORDS,rng).to_string()
+        };
+        if word_ok(&candidate) { return candidate; }
+    }
+    String::new()
 }
 
 #[derive(Clone, Default)]
@@ -383,7 +454,7 @@ impl App {
             } else {
                 &[&["🎲 Генерировать"][..],&["📊 Мой лимит"][..],&["👑 Купить Premium"][..],&["💬 Поддержка"][..]][..]
             };
-            self.send(chat,"👋 Username Generator\n\nГенерация английских username из 5 букв.\n3 варианта за запрос.\n20 запросов в день.\n\nНажми «Генерировать».",Some(menu));
+            self.send(chat,"👋 Username Generator\n\nГенерация английских username из 5 букв.\n5 вариантов за запрос.\n20 запросов в день.\n\nНажми «Генерировать».",Some(menu));
             return;
         }
         if text=="/myid" {
