@@ -414,8 +414,7 @@ impl App {
             _ => {}
         }
     }
-
-
+}
 
 fn main() {
     let token=env::var("BOT_TOKEN").unwrap_or_default().trim().to_string();
