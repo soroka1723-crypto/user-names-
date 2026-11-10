@@ -1,3 +1,5 @@
+mod generator;
+
 use chrono::Local;
 use rayon::prelude::*;
 use reqwest::blocking::Client;
