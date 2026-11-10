@@ -216,7 +216,7 @@ impl App {
             stmt.query_map([],|r|r.get::<_,String>(0)).map_err(|_|"db")?
                 .collect::<rusqlite::Result<std::collections::HashSet<_>>>().map_err(|_|"db")?
         };
-        candidates.retain(|n| !known.contains(n));
+        candidates.retain(|n| n.len()==5 && n.bytes().all(|b|b.is_ascii_lowercase()) && !known.contains(n));
         let statuses: Vec<(String,&'static str)> = self.pool.install(|| {
             candidates.par_iter().map(|n|(n.clone(),self.check_name(n))).collect()
         });
@@ -283,6 +283,21 @@ impl App {
             self.set_state(id,state.clone());
             return true;
         }
+        if state.step == "message_id" {
+            if let Ok(target) = text.parse::<i64>() {
+                if target > 0 {
+                    state.target = target;
+                    state.step = "message_text".into();
+                    self.send(chat,"Теперь отправь текст сообщения:",None);
+                } else {
+                    self.send(chat,"Введи корректный Telegram ID.",None);
+                }
+            } else {
+                self.send(chat,"Введи числовой Telegram ID.",None);
+            }
+            self.set_state(id,state.clone());
+            return true;
+        }
         if state.step == "message_text" {
             let target = state.target;
             state.step.clear(); state.target=0;
@@ -344,8 +359,12 @@ impl App {
         if self.admin_input(id,chat,text,&mut state) { return; }
         if text=="/start" {
             self.set_state(id,UserState::default());
-            self.send(chat,"👋 Username Generator\n\nГенерация английских username из 5 букв.\n3 варианта за запрос.\n20 запросов в день.\n\nНажми «Генерировать».",
-                Some(&[&["🎲 Генерировать"],&["📊 Мой лимит"],&["👑 Купить Premium"],&["💬 Поддержка"]]));
+            let menu = if id == ADMIN_ID {
+                &[&["🎲 Генерировать"][..],&["📊 Мой лимит"][..],&["👑 Купить Premium"][..],&["💬 Поддержка"][..],&["🔐 Админ-панель"][..]][..]
+            } else {
+                &[&["🎲 Генерировать"][..],&["📊 Мой лимит"][..],&["👑 Купить Premium"][..],&["💬 Поддержка"][..]][..]
+            };
+            self.send(chat,"👋 Username Generator\n\nГенерация английских username из 5 букв.\n3 варианта за запрос.\n20 запросов в день.\n\nНажми «Генерировать».",Some(menu));
             return;
         }
         if text=="/myid" {
