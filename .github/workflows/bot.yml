@@ -1,4 +1,5 @@
 name: Run Rust Telegram bot
+# Manual one-hour launch trigger.
 on:
   push:
     branches:
